@@ -235,10 +235,16 @@ def extract_properties_from_text(
             )
 
             if is_rate_limit and attempt < LLM_MAX_RETRIES:
-                backoff_seconds = (attempt * 6) + 2
+                import re
+                retry_match = re.search(r"retry(?:delay)?[:\s'\"]*(\d+)", error_msg)
+                if retry_match:
+                    backoff_seconds = int(retry_match.group(1)) + 3
+                else:
+                    backoff_seconds = (attempt * 10) + 5
+
                 logger.warning(
-                    f"API rate limit / 503 on attempt {attempt}/{LLM_MAX_RETRIES} for '{source_url}'. "
-                    f"Waiting {backoff_seconds}s for cooldown before retrying..."
+                    f"API rate limit / Quota cooldown on attempt {attempt}/{LLM_MAX_RETRIES} for '{source_url}'. "
+                    f"Waiting {backoff_seconds}s before retrying..."
                 )
                 time.sleep(backoff_seconds)
             else:

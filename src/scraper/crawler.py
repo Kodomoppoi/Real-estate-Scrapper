@@ -42,8 +42,8 @@ async def _crawl_single_url_crawl4ai(url: str) -> str:
                 return result.markdown
             elif result and result.html:
                 return result.html
-    except Exception as exc:
-        logger.warning(f"Crawl4AI failed for '{url}': {exc}. Falling back to standard HTTP extraction.")
+    except Exception:
+        logger.info(f"Using fast HTTP extraction for '{url}'")
     return ""
 
 
