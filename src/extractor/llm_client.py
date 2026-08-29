@@ -71,10 +71,10 @@ def _get_client(client: Optional[OpenAI] = None) -> OpenAI:
     if client is not None:
         return client
 
-    api_key = LLM_API_KEY
+    api_key = (LLM_API_KEY or "").strip().strip("\"'")
     if not api_key:
         raise MissingAPIKeyError(
-            "Chave de API não configurada. Por favor, insira sua chave no menu lateral."
+            "Chave de API não configurada. Por favor, insira sua chave no menu lateral ou no arquivo .env."
         )
 
     if LLM_BASE_URL:
