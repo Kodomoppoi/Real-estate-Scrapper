@@ -11,6 +11,12 @@ __pycache__/
 *.so
 .pytest_cache/
 
+# PyInstaller Build Artifacts
+build/
+dist/
+*.spec
+*.zip
+
 # Environment Variables & Secrets
 .env
 .env.local

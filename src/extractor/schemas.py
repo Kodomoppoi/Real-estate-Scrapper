@@ -18,7 +18,7 @@ class CuratedSitesResult(BaseModel):
 
 class PropertyListing(BaseModel):
     """
-    Structured schema representing a single real estate property listing.
+    Structured schema representing a single real estate property listing with enriched title-based details.
     """
     title: str = Field(
         ...,
@@ -52,9 +52,13 @@ class PropertyListing(BaseModel):
         None,
         description="Number of bedrooms / dormitórios."
     )
+    suites: Optional[int] = Field(
+        None,
+        description="Number of suites / suítes mentioned in title or description."
+    )
     bathrooms: Optional[int] = Field(
         None,
-        description="Number of bathrooms / banheiros / suítes."
+        description="Number of bathrooms / banheiros."
     )
     parking_spots: Optional[int] = Field(
         None,
@@ -63,6 +67,18 @@ class PropertyListing(BaseModel):
     area_m2: Optional[float] = Field(
         None,
         description="Total or usable area in square meters (m²)."
+    )
+    amenities: List[str] = Field(
+        default_factory=list,
+        description="List of specific amenities found in title or description (e.g., 'Piscina', 'Churrasqueira', 'Condomínio Fechado', 'Armários Planejados', 'Varanda Gourmet', 'Vista Livre', 'Aceita Pet')."
+    )
+    financing_accepted: Optional[bool] = Field(
+        None,
+        description="Whether property explicitly accepts financing ('Aceita Financiamento' / 'FGTS')."
+    )
+    highlights: Optional[str] = Field(
+        None,
+        description="Short key highlight or differentiator extracted from the title/headline (e.g. 'Nascente com vista panorâmica', 'Reformada em condomínio fechado')."
     )
     condo_fee: Optional[str] = Field(
         None,

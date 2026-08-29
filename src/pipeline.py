@@ -58,27 +58,28 @@ async def run_pipeline_async(
     """
     Executes the full automated Real Estate Scraping and Extraction pipeline:
     1. Search & Discovery: Gathers broad candidate websites from DuckDuckGo.
-    2. AI Curation: LLM selects top N deep URLs by index (preserving full listing paths).
+    2. AI Curation: LLM selects top N deep URLs by index matching location and country language.
     3. Pagination Expansion: Generates Page 1, 2, 3... for the curated deep routes.
     4. Concurrent Crawling: Fetches listing pages.
     5. Token Cleaning: Strips noisy boilerplate.
-    6. LLM Structured Extraction: Extracts property listings for the target city.
+    6. LLM Structured Extraction: Extracts property listings adapted to target country.
     7. Fail-Fast Validation: Aborts with NoPropertiesExtractedError if 0 properties are found.
     8. Aggregation & CSV Export.
     """
     logger.info(
-        f"=== Starting Scraper Pipeline for '{city}, {country}' "
+        f"Starting Scraper Pipeline for '{city}, {country}' "
         f"[Type: {property_type or 'Todos'}, Action: {transaction_type or 'Venda'}, "
-        f"AI Top Sites: {max_sites_to_curate}, Pages/Site: {max_pages_per_site}] ==="
+        f"AI Top Sites: {max_sites_to_curate}, Pages/Site: {max_pages_per_site}]"
     )
 
-    # Step 1: Discover candidate websites from search engine
+    # Step 1: Discover candidate websites from search engine (scaled dynamically)
+    candidate_pool_size = max(max_sites_to_curate * 2, 20)
     candidate_urls = discover_real_estate_urls(
         country=country,
         city=city,
         property_type=property_type,
         transaction_type=transaction_type,
-        max_results_per_query=6  # Broad candidate pool
+        max_results_per_query=candidate_pool_size
     )
     logger.info(f"Discovered {len(candidate_urls)} raw candidate URLs from search.")
 
@@ -86,6 +87,7 @@ async def run_pipeline_async(
     curated_sites = curate_top_real_estate_sites(
         candidate_urls=candidate_urls,
         target_city=city,
+        country=country,
         max_sites=max_sites_to_curate
     )
     logger.info(f"AI Curated {len(curated_sites)} primary real estate deep URLs to scrape.")
@@ -114,6 +116,7 @@ async def run_pipeline_async(
             extracted = extract_properties_from_text(
                 cleaned_text=cleaned_text,
                 target_city=city,
+                country=country,
                 source_url=page_url
             )
             all_properties.extend(extracted)
@@ -127,7 +130,7 @@ async def run_pipeline_async(
             f"As páginas visitadas não continham listagens compatíveis ou o conteúdo foi bloqueado."
         )
 
-    logger.info(f"=== Pipeline completed. Total properties extracted: {len(all_properties)} ===")
+    logger.info(f"Pipeline completed. Total properties extracted: {len(all_properties)}")
 
     # Step 7: Convert to Pandas DataFrame and Deduplicate
     records = [p.model_dump() for p in all_properties]
