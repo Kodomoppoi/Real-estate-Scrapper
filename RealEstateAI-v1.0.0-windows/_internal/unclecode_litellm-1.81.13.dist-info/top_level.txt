@@ -1,2 +1,0 @@
-litellm
-litellm-proxy-extras
