@@ -4,11 +4,11 @@ from pydantic import BaseModel, Field
 
 class CuratedSitesResult(BaseModel):
     """
-    Schema for LLM site curation: selects the most reliable, famous, and relevant real estate portals.
+    Schema for LLM site curation: returns the integer indexes of the selected candidate URLs.
     """
-    selected_urls: List[str] = Field(
+    selected_indexes: List[int] = Field(
         default_factory=list,
-        description="Top N most reputable and relevant real estate listing URLs for the target location."
+        description="List of 1-based integer indexes corresponding to the selected candidate URLs."
     )
     reasoning: Optional[str] = Field(
         None,

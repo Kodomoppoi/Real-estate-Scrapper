@@ -50,6 +50,11 @@ class MissingAPIKeyError(LLMExtractionError):
     pass
 
 
+class NoPropertiesExtractedError(LLMExtractionError):
+    """Raised when the extraction yields zero properties across all visited sites."""
+    pass
+
+
 def _get_client(client: Optional[OpenAI] = None) -> OpenAI:
     """Returns an initialized OpenAI/Gemini client."""
     if client is not None:
@@ -88,19 +93,14 @@ def curate_top_real_estate_sites(
     client: Optional[OpenAI] = None
 ) -> List[str]:
     """
-    Asks the LLM to inspect all discovered candidate URLs at once and select the top N
-    most famous, established, and relevant real estate portals/brokers for the city.
-
-    :param candidate_urls: List of all candidate URLs found by the search engine.
-    :param target_city: Target city or location.
-    :param max_sites: Number of top sites to select (e.g., 2, 3, 5).
-    :param client: Optional pre-configured OpenAI client.
-    :return: List of top N curated URLs.
+    Asks the LLM to inspect all discovered candidate URLs and return the exact
+    original deep listing URLs for the top N most reputable portals.
+    Uses index-based matching to prevent the LLM from truncating deep paths to root domains.
     """
     if not candidate_urls:
         return []
 
-    # Filter out obvious non-property domains first
+    # 1. Filter out obvious non-property domains first
     clean_candidates: list[str] = []
     for u in candidate_urls:
         domain = urlparse(u).netloc.lower()
@@ -113,22 +113,22 @@ def curate_top_real_estate_sites(
     client_instance = _get_client(client)
     
     system_prompt = (
-        f"You are a real estate market intelligence assistant. "
-        f"Your task is to analyze candidate website URLs found for '{target_city}' and select exactly "
-        f"the top {max_sites} most reputable, famous, and relevant real estate listing portals or local brokerages "
-        f"(e.g., DFImoveis, Wimoveis, ZapImoveis, VivaReal, Imovelweb, local real estate agencies) that actually contain property listings. "
-        f"Strictly exclude social media profiles, news blogs, forum links, or directory aggregators."
+        f"You are an expert real estate researcher. "
+        f"Your task is to analyze candidate search URLs for '{target_city}' and select exactly "
+        f"the top {max_sites} most reputable, established real estate listing portals or brokerages "
+        f"(e.g., DFImoveis, Wimoveis, ZapImoveis, VivaReal, Imovelweb, major local agencies) that contain direct property listing pages. "
+        f"Return the 1-based integer indexes of the chosen items."
     )
 
-    formatted_candidates = "\n".join(f"- {url}" for url in clean_candidates)
+    formatted_candidates = "\n".join(f"[{idx}] {url}" for idx, url in enumerate(clean_candidates, start=1))
     user_prompt = (
-        f"Target City: {target_city}\n"
-        f"Required number of top websites: {max_sites}\n\n"
+        f"Target Location: {target_city}\n"
+        f"Required number of websites: {max_sites}\n\n"
         f"Candidate URLs:\n{formatted_candidates}\n\n"
-        f"Select the top {max_sites} best real estate websites."
+        f"Select the top {max_sites} best indexes from the list."
     )
 
-    logger.info(f"🤖 LLM Curating top {max_sites} websites from {len(clean_candidates)} search candidates...")
+    logger.info(f"🤖 LLM Curating top {max_sites} deep URLs from {len(clean_candidates)} search candidates...")
 
     try:
         completion = client_instance.beta.chat.completions.parse(
@@ -141,15 +141,20 @@ def curate_top_real_estate_sites(
             temperature=0.0,
         )
         parsed: CuratedSitesResult = completion.choices[0].message.parsed
-        if parsed and parsed.selected_urls:
-            valid_selected = [u for u in parsed.selected_urls if u in clean_candidates or u.startswith("http")]
-            if valid_selected:
-                logger.info(f"Top {len(valid_selected[:max_sites])} websites curated: {valid_selected[:max_sites]}")
-                return valid_selected[:max_sites]
-    except Exception as exc:
-        logger.warning(f"LLM curation warning ({exc}). Falling back to top search candidates.")
+        if parsed and parsed.selected_indexes:
+            selected_urls: list[str] = []
+            for index in parsed.selected_indexes:
+                if 1 <= index <= len(clean_candidates):
+                    selected_urls.append(clean_candidates[index - 1])
 
-    # Fallback to top N clean candidates
+            if selected_urls:
+                chosen = selected_urls[:max_sites]
+                logger.info(f"Top {len(chosen)} deep URLs selected by AI: {chosen}")
+                return chosen
+    except Exception as exc:
+        logger.warning(f"LLM curation notice ({exc}). Using top search candidates.")
+
+    # Fallback: preserve exact deep paths of top N candidates
     return clean_candidates[:max_sites]
 
 
@@ -224,13 +229,14 @@ def extract_properties_from_text(
                 or "quota" in error_msg
                 or "resource_exhausted" in error_msg
                 or "too many requests" in error_msg
+                or "503" in error_msg
             )
 
             if is_rate_limit and attempt < LLM_MAX_RETRIES:
                 backoff_seconds = (attempt * 6) + 2
                 logger.warning(
-                    f"Gemini Free-Tier rate limit (429) on attempt {attempt}/{LLM_MAX_RETRIES} for '{source_url}'. "
-                    f"Waiting {backoff_seconds}s for quota cooldown before retrying..."
+                    f"API rate limit / 503 on attempt {attempt}/{LLM_MAX_RETRIES} for '{source_url}'. "
+                    f"Waiting {backoff_seconds}s for cooldown before retrying..."
                 )
                 time.sleep(backoff_seconds)
             else:

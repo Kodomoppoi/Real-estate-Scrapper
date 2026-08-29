@@ -2,6 +2,11 @@ import logging
 from typing import Optional
 from urllib.parse import urlparse
 
+import warnings
+
+# Suppress runtime warning from deprecated duckduckgo_search package
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*renamed to `ddgs`.*")
+
 try:
     from ddgs import DDGS
 except ImportError:

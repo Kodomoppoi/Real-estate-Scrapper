@@ -14,6 +14,7 @@ from src.extractor import (
     extract_properties_from_text,
     curate_top_real_estate_sites,
     PropertyListing,
+    NoPropertiesExtractedError,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,12 +58,13 @@ async def run_pipeline_async(
     """
     Executes the full automated Real Estate Scraping and Extraction pipeline:
     1. Search & Discovery: Gathers broad candidate websites from DuckDuckGo.
-    2. AI Curation: LLM filters out spam/social networks and selects top N famous/reputable portals.
-    3. Pagination Expansion: Generates Page 1, 2, 3... for the curated sites.
+    2. AI Curation: LLM selects top N deep URLs by index (preserving full listing paths).
+    3. Pagination Expansion: Generates Page 1, 2, 3... for the curated deep routes.
     4. Concurrent Crawling: Fetches listing pages.
     5. Token Cleaning: Strips noisy boilerplate.
     6. LLM Structured Extraction: Extracts property listings for the target city.
-    7. Aggregation & CSV Export.
+    7. Fail-Fast Validation: Aborts with NoPropertiesExtractedError if 0 properties are found.
+    8. Aggregation & CSV Export.
     """
     logger.info(
         f"=== Starting Scraper Pipeline for '{city}, {country}' "
@@ -80,15 +82,15 @@ async def run_pipeline_async(
     )
     logger.info(f"Discovered {len(candidate_urls)} raw candidate URLs from search.")
 
-    # Step 2: AI Curation (LLM picks top N famous/reputable listing sites)
+    # Step 2: AI Curation (LLM picks top N deep listing URLs by index)
     curated_sites = curate_top_real_estate_sites(
         candidate_urls=candidate_urls,
         target_city=city,
         max_sites=max_sites_to_curate
     )
-    logger.info(f"AI Curated {len(curated_sites)} primary real estate websites to scrape.")
+    logger.info(f"AI Curated {len(curated_sites)} primary real estate deep URLs to scrape.")
 
-    # Step 3: Expand URLs with pagination for curated sites
+    # Step 3: Expand URLs with pagination for curated deep sites
     target_urls: List[str] = []
     for url in curated_sites:
         paginated_links = generate_paginated_urls(url, max_pages=max_pages_per_site)
@@ -118,9 +120,16 @@ async def run_pipeline_async(
         except Exception as exc:
             logger.warning(f"Skipping extraction for '{page_url}' due to error: {exc}")
 
+    # Step 6: Fail-Fast Policy on zero extracted properties
+    if not all_properties:
+        raise NoPropertiesExtractedError(
+            f"Nenhum imóvel foi extraído para a localização '{city}, {country}'. "
+            f"As páginas visitadas não continham listagens compatíveis ou o conteúdo foi bloqueado."
+        )
+
     logger.info(f"=== Pipeline completed. Total properties extracted: {len(all_properties)} ===")
 
-    # Step 6: Convert to Pandas DataFrame and Deduplicate
+    # Step 7: Convert to Pandas DataFrame and Deduplicate
     records = [p.model_dump() for p in all_properties]
     df = pd.DataFrame(records)
 
@@ -130,7 +139,7 @@ async def run_pipeline_async(
         if len(df) < initial_len:
             logger.info(f"Removed {initial_len - len(df)} duplicate listings across pages.")
 
-    # Step 7: Export to CSV
+    # Step 8: Export to CSV
     saved_path = None
     if save_to_csv and not df.empty:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

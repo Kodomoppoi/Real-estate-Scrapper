@@ -7,8 +7,9 @@ import warnings
 # Ensure workspace root is in sys.path for direct execution
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-# Suppress ResourceWarning on Windows subprocess pipes
+# Suppress ResourceWarning on Windows subprocess pipes and deprecated package warnings
 warnings.filterwarnings("ignore", category=ResourceWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 from src.pipeline import run_pipeline_async
 
