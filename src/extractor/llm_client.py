@@ -64,7 +64,7 @@ def _get_client(client: Optional[OpenAI] = None) -> OpenAI:
     if not api_key:
         raise MissingAPIKeyError(
             "LLM API Key (GEMINI_API_KEY or OPENAI_API_KEY) is not configured. "
-            "Please create a .env file with your key (e.g., GEMINI_API_KEY=your_key)."
+            "Please configure your API key in the sidebar or in a .env file."
         )
 
     if LLM_BASE_URL:
@@ -72,29 +72,30 @@ def _get_client(client: Optional[OpenAI] = None) -> OpenAI:
     return OpenAI(api_key=api_key)
 
 
-def _load_system_prompt(target_city: str) -> str:
-    """Loads and formats the system prompt template with the target city."""
+def _load_system_prompt(target_city: str, country: str = "Brasil") -> str:
+    """Loads and formats the system prompt template with the target city and country."""
     prompt_file = PROMPTS_DIR / "extraction_system_prompt.txt"
     if prompt_file.exists():
         template = prompt_file.read_text(encoding="utf-8")
-        return template.format(target_city=target_city)
+        return template.format(target_city=target_city, country=country)
     
     return (
         f"You are a real estate data extraction assistant. "
-        f"Extract all property listings in '{target_city}' from the following text into structured JSON. "
-        f"Do not invent facts. Set missing fields to null."
+        f"Extract all property listings in '{target_city}', {country} from the following text into structured JSON. "
+        f"Respond in the official language of {country}. Do not invent facts. Set missing fields to null."
     )
 
 
 def curate_top_real_estate_sites(
     candidate_urls: List[str],
     target_city: str,
+    country: str = "Brasil",
     max_sites: int = 2,
     client: Optional[OpenAI] = None
 ) -> List[str]:
     """
     Asks the LLM to inspect all discovered candidate URLs and return the exact
-    original deep listing URLs for the top N most reputable portals.
+    original deep listing URLs for the top N most reputable portals in that country/region.
     Uses index-based matching to prevent the LLM from truncating deep paths to root domains.
     """
     if not candidate_urls:
@@ -113,22 +114,22 @@ def curate_top_real_estate_sites(
     client_instance = _get_client(client)
     
     system_prompt = (
-        f"You are an expert real estate researcher. "
-        f"Your task is to analyze candidate search URLs for '{target_city}' and select exactly "
+        f"You are an expert real estate researcher analyzing websites in {country}. "
+        f"Your task is to analyze candidate search URLs for '{target_city}', {country} and select exactly "
         f"the top {max_sites} most reputable, established real estate listing portals or brokerages "
-        f"(e.g., DFImoveis, Wimoveis, ZapImoveis, VivaReal, Imovelweb, major local agencies) that contain direct property listing pages. "
+        f"that contain direct property listing search results for that location. "
         f"Return the 1-based integer indexes of the chosen items."
     )
 
     formatted_candidates = "\n".join(f"[{idx}] {url}" for idx, url in enumerate(clean_candidates, start=1))
     user_prompt = (
-        f"Target Location: {target_city}\n"
+        f"Target Location: {target_city}, {country}\n"
         f"Required number of websites: {max_sites}\n\n"
         f"Candidate URLs:\n{formatted_candidates}\n\n"
         f"Select the top {max_sites} best indexes from the list."
     )
 
-    logger.info(f"🤖 LLM Curating top {max_sites} deep URLs from {len(clean_candidates)} search candidates...")
+    logger.info(f"LLM Curating top {max_sites} deep URLs from {len(clean_candidates)} search candidates for {country}...")
 
     try:
         completion = client_instance.beta.chat.completions.parse(
@@ -161,33 +162,34 @@ def curate_top_real_estate_sites(
 def extract_properties_from_text(
     cleaned_text: str,
     target_city: str,
+    country: str = "Brasil",
     source_url: Optional[str] = None,
     client: Optional[OpenAI] = None
 ) -> List[PropertyListing]:
     """
     Extracts structured property listings from cleaned webpage text using Structured Outputs.
-    Features automated Rate-Limiting and Exponential Backoff for Gemini Free-Tier stability.
+    Adapts language and localization according to the target country.
     """
     if not cleaned_text or not cleaned_text.strip():
         logger.info("Cleaned text is empty. Skipping LLM extraction.")
         return []
 
     client_instance = _get_client(client)
-    system_prompt = _load_system_prompt(target_city=target_city)
+    system_prompt = _load_system_prompt(target_city=target_city, country=country)
     user_prompt = (
-        f"Target City: {target_city}\n"
+        f"Target Location: {target_city}, {country}\n"
         f"Source URL: {source_url or 'N/A'}\n\n"
         f"--- WEBPAGE TEXT CONTENT ---\n"
         f"{cleaned_text}\n"
         f"--- END OF TEXT CONTENT ---\n\n"
-        f"Extract all property listings found above."
+        f"Extract all property listings found above in the primary language of {country}."
     )
 
     if LLM_RATE_LIMIT_DELAY_SECONDS > 0:
         time.sleep(LLM_RATE_LIMIT_DELAY_SECONDS)
 
     logger.info(
-        f"Invoking LLM ({LLM_MODEL}) for structured extraction "
+        f"Invoking LLM ({LLM_MODEL}) for structured extraction in language of {country} "
         f"(Source: {source_url or 'Unknown'})..."
     )
 
@@ -208,7 +210,7 @@ def extract_properties_from_text(
             parsed_result: PropertyExtractionResult = completion.choices[0].message.parsed
 
             if not parsed_result or not parsed_result.properties:
-                logger.info(f"LLM found 0 properties for city '{target_city}' on {source_url}.")
+                logger.info(f"LLM found 0 properties for location '{target_city}, {country}' on {source_url}.")
                 return []
 
             for prop in parsed_result.properties:
