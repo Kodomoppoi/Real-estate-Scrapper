@@ -14,6 +14,7 @@ from src.extractor import (
     extract_properties_from_text,
     curate_top_real_estate_sites,
     PropertyListing,
+    LLMExtractionError,
     NoPropertiesExtractedError,
 )
 
@@ -117,8 +118,11 @@ async def run_pipeline_async(
                 country=country,
                 source_url=site_url
             )
+        except LLMExtractionError as exc:
+            logger.error(f"[ABORT] Critical AI error: {exc}. Halting pipeline immediately.")
+            raise exc
         except Exception as exc:
-            logger.warning(f"Error extracting listings from '{site_url}': {exc}. Skipping portal.")
+            logger.warning(f"Unexpected error extracting listings from '{site_url}': {exc}. Skipping portal.")
             continue
 
         # If Page 1 returned 0 properties, immediately ABORT this portal and jump to the next one!
@@ -155,6 +159,9 @@ async def run_pipeline_async(
                         break
                     all_properties.extend(next_properties)
                     logger.info(f"[OK] Extracted {len(next_properties)} listings from Page {page_num}.")
+                except LLMExtractionError as exc:
+                    logger.error(f"[ABORT] Critical AI error on Page {page_num}: {exc}. Halting pipeline immediately.")
+                    raise exc
                 except Exception as exc:
                     logger.warning(f"Error on Page {page_num} of '{site_url}': {exc}. Stopping pagination for this portal.")
                     break

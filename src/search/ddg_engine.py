@@ -1,7 +1,7 @@
 import logging
-from typing import Optional
+import time
+from typing import List, Optional, Tuple
 from urllib.parse import urlparse
-
 import warnings
 
 # Suppress runtime warning from deprecated duckduckgo_search package
@@ -33,16 +33,14 @@ class NoResultsFoundError(SearchError):
 
 def _normalize_url(url: str) -> str:
     """
-    Normalizes a URL by stripping whitespace and removing trailing slashes.
+    Normalizes a URL by stripping whitespace, tracking parameters and removing trailing slashes.
     """
     if not url:
         return ""
     parsed = urlparse(url.strip())
-    # Keep only valid HTTP/HTTPS schemes
     if parsed.scheme not in ("http", "https"):
         return ""
     
-    # Reconstruct normalized URL
     normalized_path = parsed.path.rstrip("/")
     normalized = f"{parsed.scheme}://{parsed.netloc}{normalized_path}"
     if parsed.query:
@@ -50,34 +48,40 @@ def _normalize_url(url: str) -> str:
     return normalized
 
 
-def execute_ddg_search(query: str, max_results: int = 5) -> list[str]:
+def execute_ddg_search(query: str, max_results: int = 5, max_retries: int = 2) -> List[str]:
     """
     Executes a text search on DuckDuckGo and returns a list of discovered URLs.
     
     :param query: Search query string.
     :param max_results: Maximum number of results to fetch per search.
+    :param max_retries: Retry attempts in case of network or rate limits.
     :return: List of discovered URLs.
     """
     logger.info(f"Executing DuckDuckGo search: '{query}' (max: {max_results})")
-    urls: list[str] = []
+    urls: List[str] = []
     
-    try:
-        with DDGS() as ddgs:
-            results = ddgs.text(query, max_results=max_results)
-            if results:
-                for item in results:
-                    href = item.get("href")
-                    if href:
-                        normalized = _normalize_url(href)
-                        if normalized:
-                            urls.append(normalized)
-    except Exception as exc:
-        logger.warning(f"Warning during search for query '{query}': {exc}")
+    for attempt in range(1, max_retries + 1):
+        try:
+            with DDGS() as ddgs:
+                results = ddgs.text(query, max_results=max_results)
+                if results:
+                    for item in results:
+                        href = item.get("href")
+                        if href:
+                            normalized = _normalize_url(href)
+                            if normalized:
+                                urls.append(normalized)
+            if urls:
+                break
+        except Exception as exc:
+            logger.debug(f"Search attempt {attempt}/{max_retries} for '{query}' failed: {exc}")
+            if attempt < max_retries:
+                time.sleep(1.5 * attempt)
     
     return urls
 
 
-def _format_property_terms(prop: Optional[str], trans: Optional[str]) -> tuple[str, str]:
+def _format_property_terms(prop: Optional[str], trans: Optional[str]) -> Tuple[str, str]:
     """
     Normalizes and pluralizes property types and transaction terms for natural search engine queries.
     """
@@ -118,7 +122,7 @@ def discover_real_estate_urls(
     property_type: Optional[str] = None,
     transaction_type: Optional[str] = None,
     max_results_per_query: int = 5
-) -> list[str]:
+) -> List[str]:
     """
     Executes natural, high-yield real estate search queries matching country, city,
     property type (e.g., Casas, Apartamentos), and transaction type (e.g., A Venda, Para Alugar).
@@ -132,7 +136,6 @@ def discover_real_estate_urls(
     :raises InvalidLocationError: If country or city is null/empty.
     :raises NoResultsFoundError: If no URLs are found after executing searches.
     """
-    # 1. Fail-Fast Input Validation
     if not country or not country.strip():
         raise InvalidLocationError("The 'country' parameter cannot be empty.")
     if not city or not city.strip():
@@ -148,24 +151,20 @@ def discover_real_estate_urls(
         f"[Type: {prop_term}, Action: {trans_term}]"
     )
 
-    # 2. Build Natural Queries Targeting Direct Listing Pages
     query_primary = f"{prop_term} {trans_term} em {city_clean}"
     query_secondary = f"imoveis {trans_term} em {city_clean} {country_clean}"
 
-    # 3. Execute Searches
     urls_primary = execute_ddg_search(query_primary, max_results=max_results_per_query)
     urls_secondary = execute_ddg_search(query_secondary, max_results=max_results_per_query)
 
-    # 4. Merge & Deduplicate
     seen_urls: set[str] = set()
-    unique_urls: list[str] = []
+    unique_urls: List[str] = []
 
     for url in urls_primary + urls_secondary:
         if url not in seen_urls:
             seen_urls.add(url)
             unique_urls.append(url)
 
-    # Fallback search if zero results were found on the specific queries
     if not unique_urls:
         query_fallback = f"imobiliarias {city_clean} {country_clean}"
         logger.info(f"Attempting fallback query: '{query_fallback}'")
@@ -175,12 +174,8 @@ def discover_real_estate_urls(
                 seen_urls.add(url)
                 unique_urls.append(url)
 
-    logger.info(
-        f"Discovery finished. "
-        f"Total unique URLs after deduplication: {len(unique_urls)}"
-    )
+    logger.info(f"Discovery finished. Total unique URLs: {len(unique_urls)}")
 
-    # 5. Fail-Fast Policy on Empty Results
     if not unique_urls:
         raise NoResultsFoundError(
             f"No real estate websites found for location: '{city_clean}, {country_clean}' with query '{query_primary}'. "

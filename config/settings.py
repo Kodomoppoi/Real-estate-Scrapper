@@ -1,47 +1,69 @@
 import os
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
 # Project root directory
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR: Path = Path(__file__).resolve().parent.parent
 
-# LLM Provider & API Keys (supports both Gemini and OpenAI)
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-LLM_API_KEY = GEMINI_API_KEY or OPENAI_API_KEY or os.getenv("LLM_API_KEY", "")
 
-# LLM Model & Base URL
-LLM_MODEL = os.getenv("LLM_MODEL", "gemini-3.6-flash")
-LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.1"))
+@dataclass(frozen=True)
+class AppConfig:
+    """
+    Immutable, strictly-typed configuration container for the application.
+    """
+    base_dir: Path = BASE_DIR
+    data_raw_dir: Path = BASE_DIR / "data" / "raw"
+    data_processed_dir: Path = BASE_DIR / "data" / "processed"
+    prompts_dir: Path = BASE_DIR / "prompts"
 
-# Free-tier rate limiting and retry safeguards (15 RPM friendly)
-LLM_RATE_LIMIT_DELAY_SECONDS = float(os.getenv("LLM_RATE_LIMIT_DELAY_SECONDS", "4.0"))
-LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "5"))
+    # LLM Settings
+    gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    llm_api_key: str = os.getenv("GEMINI_API_KEY", "") or os.getenv("OPENAI_API_KEY", "") or os.getenv("LLM_API_KEY", "")
+    llm_model: str = os.getenv("LLM_MODEL", "gemini-3.6-flash")
+    llm_temperature: float = float(os.getenv("LLM_TEMPERATURE", "0.1"))
+    llm_rate_limit_delay_seconds: float = float(os.getenv("LLM_RATE_LIMIT_DELAY_SECONDS", "4.0"))
+    llm_max_retries: int = int(os.getenv("LLM_MAX_RETRIES", "5"))
+    llm_base_url: Optional[str] = (
+        os.getenv("LLM_BASE_URL")
+        or ("https://generativelanguage.googleapis.com/v1beta/openai/" if "gemini" in os.getenv("LLM_MODEL", "gemini").lower() else None)
+    )
 
-# Cleaner Token Optimization Settings
-CLEANER_MAX_CHARS = int(os.getenv("CLEANER_MAX_CHARS", "15000"))
+    # Scraper & Cleaner Settings
+    cleaner_max_chars: int = int(os.getenv("CLEANER_MAX_CHARS", "15000"))
+    default_max_pages_per_site: int = int(os.getenv("DEFAULT_MAX_PAGES_PER_SITE", "1"))
+    crawler_timeout_seconds: int = int(os.getenv("CRAWLER_TIMEOUT_SECONDS", "30"))
+    crawler_concurrency_limit: int = int(os.getenv("CRAWLER_CONCURRENCY_LIMIT", "3"))
 
-# Crawler & Pagination Settings
-DEFAULT_MAX_PAGES_PER_SITE = int(os.getenv("DEFAULT_MAX_PAGES_PER_SITE", "1"))
-CRAWLER_TIMEOUT_SECONDS = int(os.getenv("CRAWLER_TIMEOUT_SECONDS", "30"))
-CRAWLER_CONCURRENCY_LIMIT = int(os.getenv("CRAWLER_CONCURRENCY_LIMIT", "3"))
+    def initialize_directories(self) -> None:
+        """Ensures all required local directories exist."""
+        self.data_raw_dir.mkdir(parents=True, exist_ok=True)
+        self.data_processed_dir.mkdir(parents=True, exist_ok=True)
+        self.prompts_dir.mkdir(parents=True, exist_ok=True)
 
-# Automatically configure Base URL if using Gemini
-configured_base_url = os.getenv("LLM_BASE_URL", "")
-if not configured_base_url:
-    if "gemini" in LLM_MODEL.lower() or LLM_API_KEY.startswith(("AQ.", "AQ-", "AIza")):
-        configured_base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
-LLM_BASE_URL = configured_base_url or None
+# Singleton Config Instance
+config: AppConfig = AppConfig()
+config.initialize_directories()
 
-# Data Directories
-DATA_RAW_DIR = BASE_DIR / "data" / "raw"
-DATA_PROCESSED_DIR = BASE_DIR / "data" / "processed"
-PROMPTS_DIR = BASE_DIR / "prompts"
-
-# Ensure data directories exist
-DATA_RAW_DIR.mkdir(parents=True, exist_ok=True)
-DATA_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+# Backward-compatible global exports
+DATA_RAW_DIR = config.data_raw_dir
+DATA_PROCESSED_DIR = config.data_processed_dir
+PROMPTS_DIR = config.prompts_dir
+GEMINI_API_KEY = config.gemini_api_key
+OPENAI_API_KEY = config.openai_api_key
+LLM_API_KEY = config.llm_api_key
+LLM_MODEL = config.llm_model
+LLM_TEMPERATURE = config.llm_temperature
+LLM_RATE_LIMIT_DELAY_SECONDS = config.llm_rate_limit_delay_seconds
+LLM_MAX_RETRIES = config.llm_max_retries
+LLM_BASE_URL = config.llm_base_url
+CLEANER_MAX_CHARS = config.cleaner_max_chars
+DEFAULT_MAX_PAGES_PER_SITE = config.default_max_pages_per_site
+CRAWLER_TIMEOUT_SECONDS = config.crawler_timeout_seconds
+CRAWLER_CONCURRENCY_LIMIT = config.crawler_concurrency_limit

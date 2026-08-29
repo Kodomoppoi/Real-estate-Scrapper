@@ -8,6 +8,8 @@ from .llm_client import (
     curate_top_real_estate_sites,
     LLMExtractionError,
     MissingAPIKeyError,
+    LLMQuotaExhaustedError,
+    LLMAuthError,
     NoPropertiesExtractedError,
 )
 
@@ -19,5 +21,7 @@ __all__ = [
     "curate_top_real_estate_sites",
     "LLMExtractionError",
     "MissingAPIKeyError",
+    "LLMQuotaExhaustedError",
+    "LLMAuthError",
     "NoPropertiesExtractedError",
 ]

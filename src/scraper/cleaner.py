@@ -1,11 +1,12 @@
 import re
 import logging
+from typing import List, Pattern
 from config.settings import CLEANER_MAX_CHARS
 
 logger = logging.getLogger(__name__)
 
-# Keywords associated with real estate property listings
-REAL_ESTATE_KEYWORDS = [
+# Keywords associated with real estate property listings across languages
+REAL_ESTATE_KEYWORDS: List[str] = [
     r"r\$",
     r"preço",
     r"valor",
@@ -41,7 +42,7 @@ REAL_ESTATE_KEYWORDS = [
 ]
 
 # Patterns representing non-relevant noisy elements
-NOISE_PATTERNS = [
+NOISE_PATTERNS: List[str] = [
     r"(?i)pol[ií]tica de privacidade.*",
     r"(?i)termos de uso.*",
     r"(?i)todos os direitos reservados.*",
@@ -53,6 +54,15 @@ NOISE_PATTERNS = [
     r"(?i)simular financiamento.*",
     r"(?i)envie uma proposta.*",
 ]
+
+# Precompiled regular expressions for maximum throughput
+RE_IMG_BASE64: Pattern = re.compile(r"!\[.*?\]\(data:image\/.*?\)")
+RE_IMG_HTTP: Pattern = re.compile(r"!\[.*?\]\(http.*?\)")
+RE_LINK_TEXT: Pattern = re.compile(r"\[(.*?)\]\(http.*?\)")
+RE_NOISE: List[Pattern] = [re.compile(p) for p in NOISE_PATTERNS]
+RE_KEYWORD: Pattern = re.compile("|".join(REAL_ESTATE_KEYWORDS), re.IGNORECASE)
+RE_EXCESS_NEWLINES: Pattern = re.compile(r"\n{3,}")
+RE_EXCESS_SPACES: Pattern = re.compile(r"[ \t]{2,}")
 
 
 def clean_markdown_content(raw_markdown: str, max_length: int = CLEANER_MAX_CHARS) -> str:
@@ -72,29 +82,27 @@ def clean_markdown_content(raw_markdown: str, max_length: int = CLEANER_MAX_CHAR
 
     text = raw_markdown
 
-    # 1. Remove base64 image blobs and markdown image tags
-    text = re.sub(r"!\[.*?\]\(data:image\/.*?\)", "", text)
-    text = re.sub(r"!\[.*?\]\(http.*?\)", "", text)
-    text = re.sub(r"\[.*?\]\(http.*?\)", lambda m: m.group(0).split("](")[0].lstrip("["), text)
+    # 1. Strip images and simplify markdown links to text
+    text = RE_IMG_BASE64.sub("", text)
+    text = RE_IMG_HTTP.sub("", text)
+    text = RE_LINK_TEXT.sub(r"\1", text)
 
-    # 2. Remove common noise boilerplate
-    for pattern in NOISE_PATTERNS:
-        text = re.sub(pattern, "", text)
+    # 2. Strip common cookie/legal boilerplate
+    for pattern in RE_NOISE:
+        text = pattern.sub("", text)
 
     # 3. Filter lines by real estate relevance and deduplicate consecutive identical lines
     lines = text.splitlines()
-    filtered_lines: list[str] = []
+    filtered_lines: List[str] = []
     seen_previous_line = ""
-
-    keyword_regex = re.compile("|".join(REAL_ESTATE_KEYWORDS), re.IGNORECASE)
 
     for line in lines:
         stripped = line.strip()
         if not stripped or stripped == seen_previous_line:
             continue
-        
+
         # Keep lines that match property features, headers, tables, or descriptive phrases
-        if stripped.startswith(("#", "-", "*", "|")) or keyword_regex.search(stripped):
+        if stripped.startswith(("#", "-", "*", "|")) or RE_KEYWORD.search(stripped):
             filtered_lines.append(stripped)
             seen_previous_line = stripped
         elif len(stripped) > 25 and any(char.isdigit() for char in stripped):
@@ -105,8 +113,8 @@ def clean_markdown_content(raw_markdown: str, max_length: int = CLEANER_MAX_CHAR
     cleaned_text = "\n".join(filtered_lines)
 
     # 4. Collapse whitespace
-    cleaned_text = re.sub(r"\n{3,}", "\n\n", cleaned_text)
-    cleaned_text = re.sub(r"[ \t]{2,}", " ", cleaned_text).strip()
+    cleaned_text = RE_EXCESS_NEWLINES.sub("\n\n", cleaned_text)
+    cleaned_text = RE_EXCESS_SPACES.sub(" ", cleaned_text).strip()
 
     # 5. Cap text length to conserve token budget
     if len(cleaned_text) > max_length:

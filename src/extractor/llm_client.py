@@ -1,9 +1,10 @@
+import re
 import time
 import logging
 from pathlib import Path
 from typing import List, Optional
 from urllib.parse import urlparse
-from openai import OpenAI, RateLimitError, APIError
+from openai import OpenAI, RateLimitError, APIError, AuthenticationError
 
 from config.settings import (
     LLM_API_KEY,
@@ -22,8 +23,8 @@ from src.extractor.schemas import (
 
 logger = logging.getLogger(__name__)
 
-# Domains that are strictly non-real estate websites
-DISALLOWED_DOMAINS = [
+# Domains that are strictly non-real estate portals
+DISALLOWED_DOMAINS: List[str] = [
     "instagram.com",
     "facebook.com",
     "youtube.com",
@@ -50,6 +51,16 @@ class MissingAPIKeyError(LLMExtractionError):
     pass
 
 
+class LLMQuotaExhaustedError(LLMExtractionError):
+    """Raised when API quota / credits are exhausted."""
+    pass
+
+
+class LLMAuthError(LLMExtractionError):
+    """Raised when the API key is invalid or unauthorized."""
+    pass
+
+
 class NoPropertiesExtractedError(LLMExtractionError):
     """Raised when the extraction yields zero properties across all visited sites."""
     pass
@@ -63,8 +74,7 @@ def _get_client(client: Optional[OpenAI] = None) -> OpenAI:
     api_key = LLM_API_KEY
     if not api_key:
         raise MissingAPIKeyError(
-            "LLM API Key (GEMINI_API_KEY or OPENAI_API_KEY) is not configured. "
-            "Please configure your API key in the sidebar or in a .env file."
+            "Chave de API não configurada. Por favor, insira sua chave no menu lateral."
         )
 
     if LLM_BASE_URL:
@@ -102,7 +112,7 @@ def curate_top_real_estate_sites(
         return []
 
     # 1. Filter out obvious non-property domains first
-    clean_candidates: list[str] = []
+    clean_candidates: List[str] = []
     for u in candidate_urls:
         domain = urlparse(u).netloc.lower()
         if not any(disallowed in domain for disallowed in DISALLOWED_DOMAINS):
@@ -129,7 +139,7 @@ def curate_top_real_estate_sites(
         f"Select the top {max_sites} best indexes from the list."
     )
 
-    logger.info(f"LLM Curating top {max_sites} deep URLs from {len(clean_candidates)} search candidates for {country}...")
+    logger.info(f"LLM Curating top {max_sites} deep URLs from {len(clean_candidates)} search candidates using {LLM_MODEL}...")
 
     try:
         completion = client_instance.beta.chat.completions.parse(
@@ -141,19 +151,25 @@ def curate_top_real_estate_sites(
             response_format=CuratedSitesResult,
             temperature=0.0,
         )
-        parsed: CuratedSitesResult = completion.choices[0].message.parsed
+        parsed: Optional[CuratedSitesResult] = completion.choices[0].message.parsed
         if parsed and parsed.selected_indexes:
-            selected_urls: list[str] = []
+            selected_urls: List[str] = []
             for index in parsed.selected_indexes:
                 if 1 <= index <= len(clean_candidates):
                     selected_urls.append(clean_candidates[index - 1])
 
             if selected_urls:
                 chosen = selected_urls[:max_sites]
-                logger.info(f"Top {len(chosen)} deep URLs selected by AI: {chosen}")
+                logger.info(f"Top {len(chosen)} deep URLs selected by AI ({LLM_MODEL}): {chosen}")
                 return chosen
-    except Exception as exc:
+    except AuthenticationError as exc:
+        raise LLMAuthError(f"Chave de API inválida ou não autorizada: {exc}")
+    except (RateLimitError, APIError) as exc:
+        if "quota" in str(exc).lower() or "429" in str(exc) or "resource_exhausted" in str(exc).lower():
+            raise LLMQuotaExhaustedError(f"Limite de cota da API atingido no modelo {LLM_MODEL}: {exc}")
         logger.warning(f"LLM curation notice ({exc}). Using top search candidates.")
+    except Exception as exc:
+        logger.debug(f"Curation notice ({exc}). Using top search candidates.")
 
     # Fallback: preserve exact deep paths of top N candidates
     return clean_candidates[:max_sites]
@@ -167,8 +183,8 @@ def extract_properties_from_text(
     client: Optional[OpenAI] = None
 ) -> List[PropertyListing]:
     """
-    Extracts structured property listings from cleaned webpage text using Structured Outputs.
-    Adapts language and localization according to the target country.
+    Extracts structured property listings from cleaned webpage text using Structured Outputs with the configured LLM_MODEL.
+    Fails fast immediately if quota or authentication errors occur.
     """
     if not cleaned_text or not cleaned_text.strip():
         logger.info("Cleaned text is empty. Skipping LLM extraction.")
@@ -193,9 +209,7 @@ def extract_properties_from_text(
         f"(Source: {source_url or 'Unknown'})..."
     )
 
-    last_error: Optional[Exception] = None
-
-    for attempt in range(1, LLM_MAX_RETRIES + 1):
+    for attempt in range(1, 3):
         try:
             completion = client_instance.beta.chat.completions.parse(
                 model=LLM_MODEL,
@@ -207,10 +221,10 @@ def extract_properties_from_text(
                 temperature=LLM_TEMPERATURE,
             )
 
-            parsed_result: PropertyExtractionResult = completion.choices[0].message.parsed
+            parsed_result: Optional[PropertyExtractionResult] = completion.choices[0].message.parsed
 
             if not parsed_result or not parsed_result.properties:
-                logger.info(f"LLM found 0 properties for location '{target_city}, {country}' on {source_url}.")
+                logger.info(f"LLM ({LLM_MODEL}) found 0 properties for location '{target_city}, {country}' on {source_url}.")
                 return []
 
             for prop in parsed_result.properties:
@@ -219,41 +233,34 @@ def extract_properties_from_text(
                 if not prop.city:
                     prop.city = target_city
 
-            logger.info(f"Successfully extracted {len(parsed_result.properties)} properties from {source_url}.")
+            logger.info(f"Successfully extracted {len(parsed_result.properties)} properties from {source_url} using {LLM_MODEL}.")
             return parsed_result.properties
 
+        except AuthenticationError as exc:
+            # Invalid API key: abort immediately
+            raise LLMAuthError(f"Chave de API inválida ou sem permissão: {exc}")
+
         except (RateLimitError, APIError) as exc:
-            last_error = exc
             error_msg = str(exc).lower()
-            is_rate_limit = (
-                "429" in error_msg
-                or "rate limit" in error_msg
-                or "quota" in error_msg
-                or "resource_exhausted" in error_msg
-                or "too many requests" in error_msg
-                or "503" in error_msg
-            )
+            is_daily_exhausted = "generaterequestsperday" in error_msg or "daily" in error_msg or "resource_exhausted" in error_msg
 
-            if is_rate_limit and attempt < LLM_MAX_RETRIES:
-                import re
-                retry_match = re.search(r"retry(?:delay)?[:\s'\"]*(\d+)", error_msg)
-                if retry_match:
-                    backoff_seconds = int(retry_match.group(1)) + 3
-                else:
-                    backoff_seconds = (attempt * 10) + 5
-
-                logger.warning(
-                    f"API rate limit / Quota cooldown on attempt {attempt}/{LLM_MAX_RETRIES} for '{source_url}'. "
-                    f"Waiting {backoff_seconds}s before retrying..."
+            if is_daily_exhausted:
+                # Quota exhausted: abort immediately without endless waiting
+                raise LLMQuotaExhaustedError(
+                    f"Cota diária da API atingida no modelo {LLM_MODEL}. "
+                    f"Por favor, aguarde a renovação da cota do Google ou use uma chave com saldo."
                 )
+
+            if attempt == 1:
+                retry_match = re.search(r"retry(?:delay)?[:\s'\"]*(\d+)", error_msg)
+                backoff_seconds = min(int(retry_match.group(1)) + 2 if retry_match else 6, 12)
+                logger.warning(f"Rate limit cooldown for '{source_url}'. Waiting {backoff_seconds}s before 1 retry...")
                 time.sleep(backoff_seconds)
             else:
-                logger.error(f"API error on attempt {attempt}/{LLM_MAX_RETRIES} for {source_url}: {exc}")
-                if attempt >= LLM_MAX_RETRIES:
-                    break
-        except Exception as exc:
-            last_error = exc
-            logger.error(f"Unexpected error during LLM extraction for {source_url}: {exc}")
-            break
+                raise LLMQuotaExhaustedError(f"Erro de taxa de requisições (429) no modelo {LLM_MODEL}: {exc}")
 
-    raise LLMExtractionError(f"LLM extraction failed after {LLM_MAX_RETRIES} attempts: {last_error}")
+        except Exception as exc:
+            logger.error(f"Unexpected error during LLM extraction for {source_url}: {exc}")
+            raise LLMExtractionError(f"Falha na extração com o modelo {LLM_MODEL}: {exc}")
+
+    raise LLMExtractionError(f"Falha na extração com o modelo {LLM_MODEL}.")
