@@ -13,3 +13,7 @@ urllib3>=2.0.0
 # Data Processing & Interface
 pandas>=2.2.0
 streamlit>=1.35.0
+
+# Testing & Quality
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

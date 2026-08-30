@@ -14,7 +14,6 @@ from frontend.components import (
     render_sidebar,
     render_metrics_cards,
     render_table_view,
-    render_charts_view,
     render_extra_info_view,
     render_export_buttons,
 )
@@ -80,7 +79,7 @@ def main():
             st.error(f"Error loading historical file: {exc}")
 
     # 4. Handle Live Search Execution
-    if sidebar_params.get("start_search"):
+    if sidebar_params.get("start_search") or sidebar_params.get("start_clicked"):
         country = sidebar_params["country"]
         city = sidebar_params["city"]
         prop_type = sidebar_params["property_type"]
@@ -139,7 +138,15 @@ def main():
                 st.session_state["current_df"] = result.dataframe
                 st.session_state["current_city"] = city
                 st.session_state["curated_sites"] = result.curated_sites
-                st.success(f"Extraction completed successfully. **{len(result.properties)}** properties found.")
+                
+                if getattr(result, "is_partial", False):
+                    st.warning(
+                        f"⚠️ **Partial Scraping Result**: API rate limit reached during execution, "
+                        f"but **all {len(result.properties)} properties collected so far were successfully saved to history** "
+                        f"(`{result.saved_file_path or 'data/processed/'}`) and are displayed in the table and charts below!"
+                    )
+                else:
+                    st.success(f"Extraction completed successfully. **{len(result.properties)}** properties found.")
 
             except Exception as exc:
                 final_logs = log_handler.get_logs_as_text()
@@ -169,18 +176,14 @@ def main():
         render_metrics_cards(df)
 
         # 5.2 Tabs for Views (English)
-        tab_table, tab_charts, tab_extra, tab_export = st.tabs([
+        tab_table, tab_extra, tab_export = st.tabs([
             "Property Listings",
-            "Metrics & Charts",
             "Extra Details",
             "Data Export"
         ])
 
         with tab_table:
             render_table_view(df)
-
-        with tab_charts:
-            render_charts_view(df)
 
         with tab_extra:
             render_extra_info_view(df)

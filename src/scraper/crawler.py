@@ -1,8 +1,25 @@
 import asyncio
 import logging
-from typing import Dict, List
+import re
+from typing import Dict, List, Optional
+import urllib3
+import requests
 
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
+
+# Shared requests session for connection pooling and fast TCP reuse
+_HTTP_SESSION: Optional[requests.Session] = None
+
+
+def _get_http_session() -> requests.Session:
+    global _HTTP_SESSION
+    if _HTTP_SESSION is None:
+        _HTTP_SESSION = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=2)
+        _HTTP_SESSION.mount("https://", adapter)
+        _HTTP_SESSION.mount("http://", adapter)
+    return _HTTP_SESSION
 
 
 def generate_paginated_urls(base_url: str, max_pages: int = 1) -> List[str]:
@@ -32,7 +49,7 @@ def generate_paginated_urls(base_url: str, max_pages: int = 1) -> List[str]:
 
 async def _crawl_single_url_crawl4ai(url: str) -> str:
     """
-    Crawls a single URL using Crawl4AI AsyncWebCrawler.
+    Crawls a single URL using Crawl4AI AsyncWebCrawler if available.
     """
     try:
         from crawl4ai import AsyncWebCrawler
@@ -42,38 +59,28 @@ async def _crawl_single_url_crawl4ai(url: str) -> str:
                 return result.markdown
             elif result and result.html:
                 return result.html
-    except Exception as exc:
-        logger.warning(f"Crawl4AI failed for '{url}': {exc}. Falling back to standard HTTP extraction.")
+    except Exception:
+        logger.debug(f"Headless browser not active for '{url}', using fast direct HTTP session.")
     return ""
 
 
 def _fallback_fetch_http(url: str, timeout: int = 15) -> str:
     """
-    Fallback HTTP text extractor using requests with realistic browser headers and SSL handling.
+    High-speed HTTP text extractor using requests session with desktop Chrome headers.
     """
     try:
-        import requests
-        import urllib3
-        import re
-
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
+        session = _get_http_session()
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
             "Referer": "https://www.google.com/",
-            "DNT": "1",
-            "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124"',
+            "Sec-Ch-Ua": '"Chromium";v="128", "Google Chrome";v="128"',
             "Sec-Ch-Ua-Mobile": "?0",
             "Sec-Ch-Ua-Platform": '"Windows"',
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "cross-site",
-            "Sec-Fetch-User": "?1",
             "Upgrade-Insecure-Requests": "1",
         }
-        resp = requests.get(url, headers=headers, timeout=timeout, verify=False)
+        resp = session.get(url, headers=headers, timeout=timeout, verify=False)
         if resp.status_code == 200:
             html_content = resp.text
             text = re.sub(r"<script.*?</script>", "", html_content, flags=re.DOTALL | re.IGNORECASE)
@@ -82,9 +89,9 @@ def _fallback_fetch_http(url: str, timeout: int = 15) -> str:
             text = re.sub(r"\s+", " ", text).strip()
             return text
         else:
-            logger.warning(f"HTTP fetch returned status {resp.status_code} for '{url}'")
+            logger.debug(f"HTTP fetch returned status {resp.status_code} for '{url}'")
     except Exception as exc:
-        logger.warning(f"Fallback HTTP fetch failed for '{url}': {exc}")
+        logger.debug(f"Direct HTTP fetch exception for '{url}': {exc}")
     return ""
 
 

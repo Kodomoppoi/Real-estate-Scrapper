@@ -14,6 +14,7 @@ from src.extractor import (
     extract_properties_from_text,
     curate_top_real_estate_sites,
     PropertyListing,
+    LLMExtractionError,
     NoPropertiesExtractedError,
 )
 
@@ -33,7 +34,8 @@ class ScraperPipelineResult:
         crawled_urls: List[str],
         properties: List[PropertyListing],
         dataframe: pd.DataFrame,
-        saved_file_path: Optional[str] = None
+        saved_file_path: Optional[str] = None,
+        is_partial: bool = False
     ):
         self.country = country
         self.city = city
@@ -43,6 +45,7 @@ class ScraperPipelineResult:
         self.properties = properties
         self.dataframe = dataframe
         self.saved_file_path = saved_file_path
+        self.is_partial = is_partial
 
 
 async def run_pipeline_async(
@@ -92,42 +95,104 @@ async def run_pipeline_async(
     )
     logger.info(f"AI Curated {len(curated_sites)} primary real estate deep URLs to scrape.")
 
-    # Step 3: Expand URLs with pagination for curated deep sites
-    target_urls: List[str] = []
-    for url in curated_sites:
-        paginated_links = generate_paginated_urls(url, max_pages=max_pages_per_site)
-        target_urls.extend(paginated_links)
-
-    logger.info(f"Total target pages to crawl: {len(target_urls)}")
-
-    # Step 4: Crawl all expanded pages concurrently
-    scraped_data = await crawl_urls(urls=target_urls, concurrency_limit=concurrency_limit)
-    logger.info(f"Successfully scraped content from {len(scraped_data)}/{len(target_urls)} pages.")
-
-    # Step 5: Clean and Extract with LLM for each page
+    # Step 3, 4 & 5: Progressive Portal-by-Portal Crawling with Early Abandonment
     all_properties: List[PropertyListing] = []
+    crawled_urls: List[str] = []
+    halt_pipeline_due_to_quota: bool = False
 
-    for page_url, raw_content in scraped_data.items():
-        cleaned_text = clean_markdown_content(raw_content)
-        if not cleaned_text or len(cleaned_text.strip()) < 80:
+    for site_idx, site_url in enumerate(curated_sites, start=1):
+        if halt_pipeline_due_to_quota:
+            break
+
+        logger.info(f"Processing Portal {site_idx}/{len(curated_sites)}: '{site_url}'")
+
+        # 1. Test Page 1 of the portal first
+        page1_data = await crawl_urls(urls=[site_url], concurrency_limit=concurrency_limit)
+        raw_page1 = page1_data.get(site_url, "")
+        cleaned_page1 = clean_markdown_content(raw_page1)
+
+        if not cleaned_page1 or len(cleaned_page1.strip()) < 80:
+            logger.info(f"[SKIP] Portal '{site_url}' returned empty or blocked content on Page 1. Aborting remaining pages for this portal.")
             continue
 
+        crawled_urls.append(site_url)
+
         try:
-            extracted = extract_properties_from_text(
-                cleaned_text=cleaned_text,
+            page1_properties = extract_properties_from_text(
+                cleaned_text=cleaned_page1,
                 target_city=city,
                 country=country,
-                source_url=page_url
+                source_url=site_url
             )
-            all_properties.extend(extracted)
+        except LLMExtractionError as exc:
+            if all_properties:
+                logger.warning(
+                    f"[PARTIAL SUCCESS] AI quota limit reached on '{site_url}'. "
+                    f"Preserving and delivering all {len(all_properties)} properties collected so far."
+                )
+                halt_pipeline_due_to_quota = True
+                break
+            else:
+                logger.error(f"[ABORT] Critical AI error with 0 properties collected: {exc}. Halting pipeline immediately.")
+                raise exc
         except Exception as exc:
-            logger.warning(f"Skipping extraction for '{page_url}' due to error: {exc}")
+            logger.warning(f"Unexpected error extracting listings from '{site_url}': {exc}. Skipping portal.")
+            continue
+
+        # If Page 1 returned 0 properties, immediately ABORT this portal and jump to the next one!
+        if not page1_properties:
+            logger.info(f"[SKIP] Portal '{site_url}' yielded 0 listings on Page 1. Aborting this site to save tokens and moving to next portal...")
+            continue
+
+        all_properties.extend(page1_properties)
+        logger.info(f"[OK] Extracted {len(page1_properties)} listings from Page 1 of '{site_url}'.")
+
+        # 2. Only if Page 1 succeeded and max_pages_per_site > 1, process subsequent pages
+        if max_pages_per_site > 1:
+            paginated_links = generate_paginated_urls(site_url, max_pages=max_pages_per_site)[1:]
+            for page_num, next_page_url in enumerate(paginated_links, start=2):
+                logger.info(f"Crawling Page {page_num}/{max_pages_per_site} of portal '{site_url}'...")
+                next_page_data = await crawl_urls(urls=[next_page_url], concurrency_limit=concurrency_limit)
+                raw_next = next_page_data.get(next_page_url, "")
+                cleaned_next = clean_markdown_content(raw_next)
+
+                if not cleaned_next or len(cleaned_next.strip()) < 80:
+                    logger.info(f"Page {page_num} of '{site_url}' is empty. Stopping pagination for this portal.")
+                    break
+
+                crawled_urls.append(next_page_url)
+                try:
+                    next_properties = extract_properties_from_text(
+                        cleaned_text=cleaned_next,
+                        target_city=city,
+                        country=country,
+                        source_url=next_page_url
+                    )
+                    if not next_properties:
+                        logger.info(f"Page {page_num} yielded 0 listings. Stopping pagination for '{site_url}'.")
+                        break
+                    all_properties.extend(next_properties)
+                    logger.info(f"[OK] Extracted {len(next_properties)} listings from Page {page_num}.")
+                except LLMExtractionError as exc:
+                    if all_properties:
+                        logger.warning(
+                            f"[PARTIAL SUCCESS] AI quota limit reached on Page {page_num}. "
+                            f"Preserving and delivering all {len(all_properties)} properties collected so far."
+                        )
+                        halt_pipeline_due_to_quota = True
+                        break
+                    else:
+                        logger.error(f"[ABORT] Critical AI error on Page {page_num} with 0 properties collected: {exc}. Halting pipeline.")
+                        raise exc
+                except Exception as exc:
+                    logger.warning(f"Error on Page {page_num} of '{site_url}': {exc}. Stopping pagination for this portal.")
+                    break
 
     # Step 6: Fail-Fast Policy on zero extracted properties
     if not all_properties:
         raise NoPropertiesExtractedError(
-            f"Nenhum imóvel foi extraído para a localização '{city}, {country}'. "
-            f"As páginas visitadas não continham listagens compatíveis ou o conteúdo foi bloqueado."
+            f"No property listings were extracted for '{city}, {country}'. "
+            f"The visited real estate portals contained no matching listings for this location, blocked automated access, or the AI request quota was exceeded."
         )
 
     logger.info(f"Pipeline completed. Total properties extracted: {len(all_properties)}")
@@ -158,8 +223,9 @@ async def run_pipeline_async(
         city=city,
         discovered_candidates=candidate_urls,
         curated_sites=curated_sites,
-        crawled_urls=target_urls,
+        crawled_urls=crawled_urls,
         properties=all_properties,
         dataframe=df,
-        saved_file_path=saved_path
+        saved_file_path=saved_path,
+        is_partial=halt_pipeline_due_to_quota
     )
