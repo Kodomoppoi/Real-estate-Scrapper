@@ -96,8 +96,12 @@ async def run_pipeline_async(
     # Step 3, 4 & 5: Progressive Portal-by-Portal Crawling with Early Abandonment
     all_properties: List[PropertyListing] = []
     crawled_urls: List[str] = []
+    halt_pipeline_due_to_quota: bool = False
 
     for site_idx, site_url in enumerate(curated_sites, start=1):
+        if halt_pipeline_due_to_quota:
+            break
+
         logger.info(f"Processing Portal {site_idx}/{len(curated_sites)}: '{site_url}'")
 
         # 1. Test Page 1 of the portal first
@@ -119,8 +123,16 @@ async def run_pipeline_async(
                 source_url=site_url
             )
         except LLMExtractionError as exc:
-            logger.error(f"[ABORT] Critical AI error: {exc}. Halting pipeline immediately.")
-            raise exc
+            if all_properties:
+                logger.warning(
+                    f"[PARTIAL SUCCESS] AI quota limit reached on '{site_url}'. "
+                    f"Preserving and delivering all {len(all_properties)} properties collected so far."
+                )
+                halt_pipeline_due_to_quota = True
+                break
+            else:
+                logger.error(f"[ABORT] Critical AI error with 0 properties collected: {exc}. Halting pipeline immediately.")
+                raise exc
         except Exception as exc:
             logger.warning(f"Unexpected error extracting listings from '{site_url}': {exc}. Skipping portal.")
             continue
@@ -160,8 +172,16 @@ async def run_pipeline_async(
                     all_properties.extend(next_properties)
                     logger.info(f"[OK] Extracted {len(next_properties)} listings from Page {page_num}.")
                 except LLMExtractionError as exc:
-                    logger.error(f"[ABORT] Critical AI error on Page {page_num}: {exc}. Halting pipeline immediately.")
-                    raise exc
+                    if all_properties:
+                        logger.warning(
+                            f"[PARTIAL SUCCESS] AI quota limit reached on Page {page_num}. "
+                            f"Preserving and delivering all {len(all_properties)} properties collected so far."
+                        )
+                        halt_pipeline_due_to_quota = True
+                        break
+                    else:
+                        logger.error(f"[ABORT] Critical AI error on Page {page_num} with 0 properties collected: {exc}. Halting pipeline.")
+                        raise exc
                 except Exception as exc:
                     logger.warning(f"Error on Page {page_num} of '{site_url}': {exc}. Stopping pagination for this portal.")
                     break
