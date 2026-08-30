@@ -78,7 +78,8 @@ def render_sidebar() -> Dict[str, Any]:
             key_placeholder = "AIzaSy..."
             provider_stored_key = st.session_state["gemini_key"]
         elif selected_provider == "Groq Cloud (Free / Ultra-Fast)":
-            active_model = "llama-3.3-70b-versatile"
+            groq_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"]
+            active_model = st.selectbox("Groq Model:", groq_models, index=0)
             active_url = "https://api.groq.com/openai/v1"
             key_placeholder = "gsk_..."
             provider_stored_key = st.session_state["groq_key"]
