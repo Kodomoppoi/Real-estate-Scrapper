@@ -11,7 +11,7 @@ An intelligent, token-efficient pipeline designed to automatically discover real
 ![Dashboard Overview](docs/screenshots/dashboard_overview.png)
 *Interactive Real Estate Explorer with KPI metrics, AI curated portals, and property listing tables.*
 
-<video src="[path/to/video.mp4](https://youtu.be/xcjRcRTZt-I?si=thM-5ZTkQCM7sZmI)" width="320" height="240" controls></video>
+<iframe width="560" height="315" src="https://youtu.be/xcjRcRTZt-I?si=thM-5ZTkQCM7sZmI" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
 
 ---
 
