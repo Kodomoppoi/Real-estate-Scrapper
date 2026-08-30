@@ -4,7 +4,11 @@ import pandas as pd
 
 
 def _clean_price(price_str: str) -> float:
-    if not isinstance(price_str, str):
+    """Extracts clean float value from currency string (e.g. 'R$ 850.000' -> 850000.0)."""
+    if not isinstance(price_str, str) or not price_str.strip():
+        return 0.0
+    clean_str = price_str.strip().lower()
+    if clean_str in ["none", "null", "n/a", "consulte", "sob consulta", "0"]:
         return 0.0
     cleaned = re.sub(r"[^\d,.]", "", price_str)
     if not cleaned:
@@ -12,10 +16,17 @@ def _clean_price(price_str: str) -> float:
     if "," in cleaned and "." in cleaned:
         cleaned = cleaned.replace(".", "").replace(",", ".")
     elif "," in cleaned:
-        cleaned = cleaned.replace(",", ".")
-    elif "." in cleaned and cleaned.count(".") > 1:
+        parts = cleaned.split(",")
+        if len(parts[-1]) == 2:
+            cleaned = "".join(parts[:-1]) + "." + parts[-1]
+        else:
+            cleaned = cleaned.replace(",", "")
+    elif "." in cleaned:
         parts = cleaned.split(".")
-        cleaned = "".join(parts[:-1]) + "." + parts[-1]
+        if all(len(p) == 3 for p in parts[1:]):
+            cleaned = "".join(parts)
+        else:
+            cleaned = "".join(parts[:-1]) + "." + parts[-1]
     try:
         return float(cleaned)
     except ValueError:

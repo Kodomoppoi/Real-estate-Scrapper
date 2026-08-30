@@ -34,7 +34,8 @@ class ScraperPipelineResult:
         crawled_urls: List[str],
         properties: List[PropertyListing],
         dataframe: pd.DataFrame,
-        saved_file_path: Optional[str] = None
+        saved_file_path: Optional[str] = None,
+        is_partial: bool = False
     ):
         self.country = country
         self.city = city
@@ -44,6 +45,7 @@ class ScraperPipelineResult:
         self.properties = properties
         self.dataframe = dataframe
         self.saved_file_path = saved_file_path
+        self.is_partial = is_partial
 
 
 async def run_pipeline_async(
@@ -224,5 +226,6 @@ async def run_pipeline_async(
         crawled_urls=crawled_urls,
         properties=all_properties,
         dataframe=df,
-        saved_file_path=saved_path
+        saved_file_path=saved_path,
+        is_partial=halt_pipeline_due_to_quota
     )

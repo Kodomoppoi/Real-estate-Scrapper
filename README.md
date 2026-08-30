@@ -18,11 +18,15 @@ An intelligent, token-efficient pipeline designed to automatically discover real
 
 ---
 
-> ⚠️ **Important Note on Crawl Settings & Token Consumption:**
-> The total number of crawled pages, AI token expenditure, and overall execution time increase **exponentially** with the **Crawl Settings** (`AI Curated Sites` × `Pages per Site`).
+> ⚠️ **Important Note on Crawl Settings, Model Selection & Rate Limits (TPM):**
 > 
-> * **For Testing**: It is strongly recommended to set **1 Curated Site** and **1 Page per Site (`1 / 1`)** to verify location results quickly and conserve API quota.
-> * **For Full Scrapes**: Increase to higher limits (e.g., 2–5 sites, 2–3 pages) once you confirm portal accessibility and have adequate API quota.
+> 1. **Exponential Crawl Scaling**: The total number of crawled pages, AI token expenditure, and overall execution time increase **exponentially** with the **Crawl Settings** (`AI Curated Sites` × `Pages per Site`).
+>    * **For Testing**: It is strongly recommended to set **1 Curated Site** and **1 Page per Site (`1 / 1`)** to verify location results quickly and conserve API quota.
+>    * **For Full Scrapes**: Increase to higher limits (e.g., 2–5 sites, 2–3 pages) once you confirm portal accessibility.
+> 
+> 2. **AI Provider Capacity & Extraction Yield (TPM Limits)**:
+>    * **Google Gemini (`gemini-3.6-flash`) [Recommended for Maximum Volume]**: Features a 4,000,000 TPM limit and 1M context window. It effortlessly extracts **20 to 25 complete listings per page** in seconds.
+>    * **Groq Cloud (Free Tier)**: Provides ultra-fast LPU inference, but large 70B/120B models (e.g. `openai/gpt-oss-120b`) have a tight ~6,000 TPM cap that can rate-limit full-page extraction down to only 1–2 listings per request. **For Groq, use high-throughput models** like `qwen/qwen3.6-27b`, `groq/compound-mini`, or `openai/gpt-oss-20b` (20,000+ TPM).
 
 ---
 

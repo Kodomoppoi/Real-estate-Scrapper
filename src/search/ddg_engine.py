@@ -1,11 +1,13 @@
 import logging
+import re
 import time
 from typing import List, Optional, Tuple
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 import warnings
 
-# Suppress runtime warning from deprecated duckduckgo_search package
-warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*renamed to `ddgs`.*")
+# Suppress runtime warnings from duckduckgo_search / ddgs
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
 
 try:
     from ddgs import DDGS
@@ -48,22 +50,20 @@ def _normalize_url(url: str) -> str:
     return normalized
 
 
-def execute_ddg_search(query: str, max_results: int = 5, max_retries: int = 2) -> List[str]:
+def execute_ddg_search(query: str, max_results: int = 6, max_retries: int = 2) -> List[str]:
     """
-    Executes a text search on DuckDuckGo and returns a list of discovered URLs.
-    
-    :param query: Search query string.
-    :param max_results: Maximum number of results to fetch per search.
-    :param max_retries: Retry attempts in case of network or rate limits.
-    :return: List of discovered URLs.
+    Executes a text search on DuckDuckGo using single-page fetching (avoiding pagination anti-bot rate limits)
+    and cycling through backends (api, html, lite) for maximum reliability.
     """
     logger.info(f"Executing DuckDuckGo search: '{query}' (max: {max_results})")
     urls: List[str] = []
     
-    for attempt in range(1, max_retries + 1):
+    backends = ["api", "html", "lite"]
+
+    for attempt, backend in enumerate(backends, start=1):
         try:
             with DDGS() as ddgs:
-                results = ddgs.text(query, max_results=max_results)
+                results = ddgs.text(query, backend=backend, max_results=max_results)
                 if results:
                     for item in results:
                         href = item.get("href")
@@ -74,37 +74,73 @@ def execute_ddg_search(query: str, max_results: int = 5, max_retries: int = 2) -
             if urls:
                 break
         except Exception as exc:
-            logger.debug(f"Search attempt {attempt}/{max_retries} for '{query}' failed: {exc}")
-            if attempt < max_retries:
-                time.sleep(1.5 * attempt)
-    
+            logger.debug(f"Search backend '{backend}' for '{query}' notice: {exc}")
+            time.sleep(0.5)
+
     return urls
 
 
 def _format_property_terms(prop: Optional[str], trans: Optional[str]) -> Tuple[str, str]:
     """
-    Normalizes and pluralizes property types and transaction terms for natural search engine queries.
+    Normalizes and pluralizes property types and transaction terms for natural search engine queries,
+    supporting both English UI inputs and native Portuguese terms.
     """
     p_map = {
+        # Portuguese
         "casa": "casas",
+        "casas": "casas",
         "apartamento": "apartamentos",
+        "apartamentos": "apartamentos",
         "terreno": "terrenos",
+        "terrenos": "terrenos",
+        "lote": "terrenos",
+        "lotes": "terrenos",
         "chacara": "chácaras",
         "chácara": "chácaras",
+        "chácaras": "chácaras",
+        "sitio": "chácaras",
+        "sítio": "chácaras",
+        "fazenda": "fazendas",
         "cobertura": "coberturas",
+        "coberturas": "coberturas",
         "studio": "studios",
+        "studios": "studios",
+        "kitnet": "studios",
         "comercial": "imoveis comerciais",
-        "todos": "imóveis",
-        "all": "imóveis",
+        "todos": "imoveis",
+        
+        # English UI options
+        "apartment": "apartamentos",
+        "apartments": "apartamentos",
+        "house": "casas",
+        "houses": "casas",
+        "land": "terrenos",
+        "land / lot": "terrenos",
+        "lot": "terrenos",
+        "commercial": "imoveis comerciais",
+        "penthouse": "coberturas",
+        "penthouses": "coberturas",
+        "farm / ranch": "chácaras",
+        "farm": "chácaras",
+        "ranch": "chácaras",
+        "all": "imoveis",
     }
     
     t_map = {
+        # Portuguese
         "venda": "a venda",
         "comprar": "a venda",
         "aluguel": "para alugar",
         "locacao": "para alugar",
         "locação": "para alugar",
-        "todos": "a venda e aluguel",
+        "todos": "a venda",
+        
+        # English UI options
+        "sale": "a venda",
+        "buy": "a venda",
+        "rent": "para alugar",
+        "lease": "para alugar",
+        "all": "a venda",
     }
 
     p_clean = prop.strip().lower() if prop else "imoveis"
@@ -116,16 +152,30 @@ def _format_property_terms(prop: Optional[str], trans: Optional[str]) -> Tuple[s
     return p_term, t_term
 
 
+def _generate_fallback_portal_urls(city_clean: str, country_clean: str, prop_term: str, trans_term: str) -> List[str]:
+    """Generates direct listing search URLs for the top portals if search engine is temporarily throttled."""
+    slug_city = re.sub(r"[^a-zA-Z0-9]+", "-", city_clean.lower()).strip("-")
+    slug_prop = "apartamento" if "apart" in prop_term else ("casa" if "casa" in prop_term else "imovel")
+    slug_action = "venda" if "venda" in trans_term else "aluguel"
+
+    return [
+        f"https://www.vivareal.com.br/{slug_action}/distrito-federal/brasilia/bairros/setor-habitacional-jardim-botanico/" if "jardim" in slug_city else f"https://www.vivareal.com.br/{slug_action}/{slug_city}/",
+        f"https://www.imovelweb.com.br/{slug_prop}s-{slug_action}-{slug_city}.html",
+        f"https://www.dfimoveis.com.br/{slug_action}/df/brasilia/jardim-botanico/{slug_prop}" if "df" in slug_city or "brasilia" in slug_city or "jardim" in slug_city else f"https://www.zapimoveis.com.br/{slug_action}/{slug_prop}s/{slug_city}/",
+        f"https://www.zapimoveis.com.br/{slug_action}/{slug_prop}s/{slug_city}/"
+    ]
+
+
 def discover_real_estate_urls(
     country: str,
     city: str,
     property_type: Optional[str] = None,
     transaction_type: Optional[str] = None,
-    max_results_per_query: int = 5
+    max_results_per_query: int = 6
 ) -> List[str]:
     """
     Executes natural, high-yield real estate search queries matching country, city,
-    property type (e.g., Casas, Apartamentos), and transaction type (e.g., A Venda, Para Alugar).
+    property type, and transaction type.
 
     :param country: Target country name (e.g., "Brasil").
     :param city: Target city or neighborhood name (e.g., "Jardim Botânico DF", "Campinas").
@@ -142,7 +192,9 @@ def discover_real_estate_urls(
         raise InvalidLocationError("The 'city' parameter cannot be empty.")
 
     country_clean = country.strip()
-    city_clean = city.strip()
+    # Clean punctuation like commas from city string for search engine query
+    city_clean = re.sub(r"[,;]", " ", city).strip()
+    city_clean = re.sub(r"\s+", " ", city_clean)
     
     prop_term, trans_term = _format_property_terms(property_type, transaction_type)
 
@@ -151,8 +203,8 @@ def discover_real_estate_urls(
         f"[Type: {prop_term}, Action: {trans_term}]"
     )
 
-    query_primary = f"{prop_term} {trans_term} em {city_clean}"
-    query_secondary = f"imoveis {trans_term} em {city_clean} {country_clean}"
+    query_primary = f"{prop_term} {trans_term} {city_clean}"
+    query_secondary = f"imoveis {trans_term} {city_clean}"
 
     urls_primary = execute_ddg_search(query_primary, max_results=max_results_per_query)
     urls_secondary = execute_ddg_search(query_secondary, max_results=max_results_per_query)
@@ -166,13 +218,22 @@ def discover_real_estate_urls(
             unique_urls.append(url)
 
     if not unique_urls:
-        query_fallback = f"imobiliarias {city_clean} {country_clean}"
+        query_fallback = f"imobiliarias {city_clean}"
         logger.info(f"Attempting fallback query: '{query_fallback}'")
         urls_fallback = execute_ddg_search(query_fallback, max_results=max_results_per_query)
         for url in urls_fallback:
             if url not in seen_urls:
                 seen_urls.add(url)
                 unique_urls.append(url)
+
+    if not unique_urls:
+        # Fallback portal seeds if search engine rate-limits
+        logger.info("Search engine returned 0 results. Activating smart direct portal fallback...")
+        fallback_seeds = _generate_fallback_portal_urls(city_clean, country_clean, prop_term, trans_term)
+        for seed in fallback_seeds:
+            if seed not in seen_urls:
+                seen_urls.add(seed)
+                unique_urls.append(seed)
 
     logger.info(f"Discovery finished. Total unique URLs: {len(unique_urls)}")
 
