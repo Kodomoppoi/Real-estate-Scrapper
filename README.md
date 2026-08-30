@@ -18,6 +18,14 @@ An intelligent, token-efficient pipeline designed to automatically discover real
 
 ---
 
+> ⚠️ **Important Note on Crawl Settings & Token Consumption:**
+> The total number of crawled pages, AI token expenditure, and overall execution time increase **exponentially** with the **Crawl Settings** (`AI Curated Sites` × `Pages per Site`).
+> 
+> * **For Testing**: It is strongly recommended to set **1 Curated Site** and **1 Page per Site (`1 / 1`)** to verify location results quickly and conserve API quota.
+> * **For Full Scrapes**: Increase to higher limits (e.g., 2–5 sites, 2–3 pages) once you confirm portal accessibility and have adequate API quota.
+
+---
+
 ## 🏗️ Architecture
 
 ### Why AI?
