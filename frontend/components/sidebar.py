@@ -43,22 +43,32 @@ def render_sidebar() -> Dict[str, Any]:
     # Initialize provider key states if not present
     if "gemini_key" not in st.session_state:
         st.session_state["gemini_key"] = os.getenv("GEMINI_API_KEY", "") or (LLM_API_KEY if "gemini" in LLM_MODEL.lower() else "")
+    if "groq_key" not in st.session_state:
+        st.session_state["groq_key"] = os.getenv("GROQ_API_KEY", "") or (LLM_API_KEY if "groq" in str(LLM_BASE_URL).lower() else "")
     if "openai_key" not in st.session_state:
         st.session_state["openai_key"] = os.getenv("OPENAI_API_KEY", "") or (LLM_API_KEY if "gpt" in LLM_MODEL.lower() else "")
     if "custom_key" not in st.session_state:
         st.session_state["custom_key"] = os.getenv("CUSTOM_API_KEY", "")
 
     # Multi-Provider API Configuration
-    with st.sidebar.expander("AI Provider & API Key", expanded=True if not os.getenv("GEMINI_API_KEY") and not os.getenv("OPENAI_API_KEY") else False):
-        provider_options = ["Google Gemini (Free)", "OpenAI (GPT-4o-mini)", "Custom / OpenRouter / Groq"]
+    with st.sidebar.expander("AI Provider & API Key", expanded=True if not os.getenv("GEMINI_API_KEY") and not os.getenv("OPENAI_API_KEY") and not os.getenv("GROQ_API_KEY") else False):
+        provider_options = [
+            "Google Gemini (Free)",
+            "Groq Cloud (Free / Ultra-Fast)",
+            "OpenAI (GPT-4o-mini)",
+            "Custom / OpenRouter"
+        ]
         
         # Determine current provider index
         current_model = os.getenv("LLM_MODEL", LLM_MODEL)
+        current_base_url = str(os.getenv("LLM_BASE_URL", LLM_BASE_URL or "")).lower()
         default_idx = 0
-        if "gpt" in current_model.lower():
+        if "groq" in current_base_url or "groq" in current_model.lower():
             default_idx = 1
-        elif "openrouter" in str(os.getenv("LLM_BASE_URL", "")).lower() or "groq" in str(os.getenv("LLM_BASE_URL", "")).lower() or "llama" in current_model.lower():
+        elif "gpt" in current_model.lower():
             default_idx = 2
+        elif "openrouter" in current_base_url or "llama" in current_model.lower():
+            default_idx = 3
 
         selected_provider = st.selectbox("AI Provider:", provider_options, index=default_idx)
 
@@ -67,15 +77,20 @@ def render_sidebar() -> Dict[str, Any]:
             active_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
             key_placeholder = "AIzaSy..."
             provider_stored_key = st.session_state["gemini_key"]
+        elif selected_provider == "Groq Cloud (Free / Ultra-Fast)":
+            active_model = "llama-3.3-70b-versatile"
+            active_url = "https://api.groq.com/openai/v1"
+            key_placeholder = "gsk_..."
+            provider_stored_key = st.session_state["groq_key"]
         elif selected_provider == "OpenAI (GPT-4o-mini)":
             active_model = "gpt-4o-mini"
             active_url = "https://api.openai.com/v1"
             key_placeholder = "sk-..."
             provider_stored_key = st.session_state["openai_key"]
         else:
-            active_model = st.text_input("Model ID:", value=os.getenv("LLM_MODEL", "meta-llama/llama-3.3-70b-instruct"), help="e.g. meta-llama/llama-3.3-70b-instruct or llama-3.3-70b-versatile")
+            active_model = st.text_input("Model ID:", value=os.getenv("LLM_MODEL", "meta-llama/llama-3.3-70b-instruct"), help="e.g. meta-llama/llama-3.3-70b-instruct")
             active_url = st.text_input("Base URL:", value=os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1"))
-            key_placeholder = "sk-or-... or gsk_..."
+            key_placeholder = "sk-or-..."
             provider_stored_key = st.session_state["custom_key"]
 
         input_key = st.text_input(
@@ -98,6 +113,9 @@ def render_sidebar() -> Dict[str, Any]:
             if selected_provider == "Google Gemini (Free)":
                 st.session_state["gemini_key"] = clean_key
                 os.environ["GEMINI_API_KEY"] = clean_key
+            elif selected_provider == "Groq Cloud (Free / Ultra-Fast)":
+                st.session_state["groq_key"] = clean_key
+                os.environ["GROQ_API_KEY"] = clean_key
             elif selected_provider == "OpenAI (GPT-4o-mini)":
                 st.session_state["openai_key"] = clean_key
                 os.environ["OPENAI_API_KEY"] = clean_key
@@ -112,6 +130,8 @@ def render_sidebar() -> Dict[str, Any]:
             env_path = Path(".env")
             if selected_provider == "Google Gemini (Free)":
                 env_content = f"GEMINI_API_KEY={clean_key}\nLLM_MODEL={active_model}\nLLM_BASE_URL={active_url}\n"
+            elif selected_provider == "Groq Cloud (Free / Ultra-Fast)":
+                env_content = f"GROQ_API_KEY={clean_key}\nLLM_MODEL={active_model}\nLLM_BASE_URL={active_url}\n"
             elif selected_provider == "OpenAI (GPT-4o-mini)":
                 env_content = f"OPENAI_API_KEY={clean_key}\nLLM_MODEL={active_model}\nLLM_BASE_URL={active_url}\n"
             else:
