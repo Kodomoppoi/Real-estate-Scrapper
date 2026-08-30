@@ -191,8 +191,8 @@ async def run_pipeline_async(
     # Step 6: Fail-Fast Policy on zero extracted properties
     if not all_properties:
         raise NoPropertiesExtractedError(
-            f"Nenhum imóvel foi extraído para a localização '{city}, {country}'. "
-            f"Os portais visitados não continham listagens compatíveis, bloquearam o acesso ou o limite de requisições da IA foi atingido."
+            f"No property listings were extracted for '{city}, {country}'. "
+            f"The visited real estate portals contained no matching listings for this location, blocked automated access, or the AI request quota was exceeded."
         )
 
     logger.info(f"Pipeline completed. Total properties extracted: {len(all_properties)}")

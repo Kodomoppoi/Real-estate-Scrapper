@@ -14,7 +14,6 @@ from frontend.components import (
     render_sidebar,
     render_metrics_cards,
     render_table_view,
-    render_charts_view,
     render_extra_info_view,
     render_export_buttons,
 )
@@ -177,18 +176,14 @@ def main():
         render_metrics_cards(df)
 
         # 5.2 Tabs for Views (English)
-        tab_table, tab_charts, tab_extra, tab_export = st.tabs([
+        tab_table, tab_extra, tab_export = st.tabs([
             "Property Listings",
-            "Metrics & Charts",
             "Extra Details",
             "Data Export"
         ])
 
         with tab_table:
             render_table_view(df)
-
-        with tab_charts:
-            render_charts_view(df)
 
         with tab_extra:
             render_extra_info_view(df)

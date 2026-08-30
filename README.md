@@ -2,7 +2,6 @@
 
 [![GitHub Release](https://img.shields.io/badge/Release-v1.0.0-blue.svg)](https://github.com/Kodomoppoi/Real-estate-Scrapper/releases)
 [![Python Version](https://img.shields.io/badge/Python-3.10%2B-green.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 An intelligent, token-efficient pipeline designed to automatically discover real estate websites, crawl listing pages, and extract structured property data using LLM Structured Outputs.
 
@@ -12,9 +11,6 @@ An intelligent, token-efficient pipeline designed to automatically discover real
 
 ![Dashboard Overview](docs/screenshots/dashboard_overview.png)
 *Interactive Real Estate Explorer with KPI metrics, AI curated portals, and property listing tables.*
-
-![Market Analytics](docs/screenshots/market_analytics.png)
-*Market Visual Analytics: Area vs. Price correlation, bedroom distributions, and neighborhood breakdowns.*
 
 ---
 
@@ -85,25 +81,14 @@ Location & Filters (e.g. Ipanema, Rio de Janeiro / Brasil)
 
 ## 🚀 Quick Start
 
-### Option 1: Run with Streamlit (Source Code)
-
 ```powershell
 # 1. Clone the repository
 git clone https://github.com/Kodomoppoi/Real-estate-Scrapper.git
 cd Real-estate-Scrapper
 
-# 2. Run the application (automatically activates .venv if available)
+# 2. Run the application
 streamlit run app.py
 ```
-*(Alternatively, you can run `python run.py` or double-click `Iniciar_App.bat`).*
-
----
-
-### Option 2: Standalone Windows Executable (No Python Required)
-
-For users who want to run the application without installing Python or dependencies:
-1. Download **`RealEstateAI-v1.0.0-windows.zip`** from [GitHub Releases](https://github.com/Kodomoppoi/Real-estate-Scrapper/releases/tag/v1.0.0).
-2. Extract the ZIP file and run **`RealEstateAI.exe`**.
 
 ---
 
@@ -126,10 +111,9 @@ LLM_MODEL=gpt-4o-mini
 ## 🖥️ Web Dashboard Features
 
 - **Real-Time Terminal Activity**: Live streaming terminal box embedded directly inside the browser showing search, crawling, and AI steps.
-- **In-App API Key Manager**: Test and save Gemini or OpenAI API keys directly from the sidebar.
+- **In-App API Key Manager**: Test and save Gemini, OpenAI, Groq, or OpenRouter API keys directly from the sidebar.
 - **KPI Metrics Cards**: Total listings, estimated average market price, median area ($m^2$), and top neighborhood.
-- **Interactive Listings Table**: Client-side keyword search, neighborhood filters, bedroom filters, and direct links to original ads.
-- **Market Visual Analytics**: Distribution histograms by neighborhood and bedroom counts, alongside $m^2$ vs Price scatter plots.
+- **Interactive Listings Table**: Client-side keyword search, neighborhood filters, bedroom filters, price range filters, and direct links to original ads.
 - **Extra Details Tab**: Amenity frequency rankings, financing status breakdown, and Price-per-$m^2$ calculation rankings.
 - **One-Click Export**: Export consolidated datasets to CSV (Excel compatible with `utf-8-sig`) and JSON.
 

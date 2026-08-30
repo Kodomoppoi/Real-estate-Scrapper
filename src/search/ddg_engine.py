@@ -80,81 +80,112 @@ def execute_ddg_search(query: str, max_results: int = 6, max_retries: int = 2) -
     return urls
 
 
-def _format_property_terms(prop: Optional[str], trans: Optional[str]) -> Tuple[str, str]:
+def _is_portuguese_locale(country: str) -> bool:
+    """Checks if target country is Portuguese-speaking."""
+    country_lower = country.strip().lower()
+    return any(c in country_lower for c in ["brasil", "brazil", "portugal", "angola", "moçambique", "mozambique"])
+
+
+def _format_property_terms(prop: Optional[str], trans: Optional[str], is_pt: bool = True) -> Tuple[str, str]:
     """
     Normalizes and pluralizes property types and transaction terms for natural search engine queries,
-    supporting both English UI inputs and native Portuguese terms.
+    adapting dynamically to Portuguese or English based on the target country.
     """
-    p_map = {
-        # Portuguese
-        "casa": "casas",
-        "casas": "casas",
-        "apartamento": "apartamentos",
-        "apartamentos": "apartamentos",
-        "terreno": "terrenos",
-        "terrenos": "terrenos",
-        "lote": "terrenos",
-        "lotes": "terrenos",
-        "chacara": "chácaras",
-        "chácara": "chácaras",
-        "chácaras": "chácaras",
-        "sitio": "chácaras",
-        "sítio": "chácaras",
-        "fazenda": "fazendas",
-        "cobertura": "coberturas",
-        "coberturas": "coberturas",
-        "studio": "studios",
-        "studios": "studios",
-        "kitnet": "studios",
-        "comercial": "imoveis comerciais",
-        "todos": "imoveis",
-        
-        # English UI options
-        "apartment": "apartamentos",
-        "apartments": "apartamentos",
-        "house": "casas",
-        "houses": "casas",
-        "land": "terrenos",
-        "land / lot": "terrenos",
-        "lot": "terrenos",
-        "commercial": "imoveis comerciais",
-        "penthouse": "coberturas",
-        "penthouses": "coberturas",
-        "farm / ranch": "chácaras",
-        "farm": "chácaras",
-        "ranch": "chácaras",
-        "all": "imoveis",
+    p_clean = prop.strip().lower() if prop else "all"
+    t_clean = trans.strip().lower() if trans else "sale"
+
+    if is_pt:
+        p_map = {
+            "casa": "casas",
+            "casas": "casas",
+            "apartamento": "apartamentos",
+            "apartamentos": "apartamentos",
+            "terreno": "terrenos",
+            "terrenos": "terrenos",
+            "lote": "terrenos",
+            "lotes": "terrenos",
+            "chacara": "chácaras",
+            "chácara": "chácaras",
+            "sitio": "chácaras",
+            "sítio": "chácaras",
+            "fazenda": "fazendas",
+            "cobertura": "coberturas",
+            "coberturas": "coberturas",
+            "studio": "studios",
+            "kitnet": "studios",
+            "comercial": "imoveis comerciais",
+            "todos": "imoveis",
+            "apartment": "apartamentos",
+            "apartments": "apartamentos",
+            "house": "casas",
+            "houses": "casas",
+            "land": "terrenos",
+            "commercial": "imoveis comerciais",
+            "penthouse": "coberturas",
+            "farm / ranch": "chácaras",
+            "all": "imoveis",
+        }
+        t_map = {
+            "venda": "a venda",
+            "comprar": "a venda",
+            "aluguel": "para alugar",
+            "locacao": "para alugar",
+            "locação": "para alugar",
+            "todos": "a venda",
+            "sale": "a venda",
+            "buy": "a venda",
+            "rent": "para alugar",
+            "lease": "para alugar",
+            "all": "a venda",
+        }
+        return p_map.get(p_clean, p_clean), t_map.get(t_clean, "a venda")
+
+    # English / International mapping
+    p_map_en = {
+        "apartment": "apartments",
+        "apartments": "apartments",
+        "apartamento": "apartments",
+        "house": "houses",
+        "houses": "houses",
+        "casa": "houses",
+        "land": "land",
+        "land / lot": "land",
+        "terreno": "land",
+        "commercial": "commercial properties",
+        "comercial": "commercial properties",
+        "penthouse": "penthouses",
+        "cobertura": "penthouses",
+        "farm / ranch": "ranches and farms",
+        "farm": "farms",
+        "all": "homes",
+        "todos": "homes",
     }
-    
-    t_map = {
-        # Portuguese
-        "venda": "a venda",
-        "comprar": "a venda",
-        "aluguel": "para alugar",
-        "locacao": "para alugar",
-        "locação": "para alugar",
-        "todos": "a venda",
-        
-        # English UI options
-        "sale": "a venda",
-        "buy": "a venda",
-        "rent": "para alugar",
-        "lease": "para alugar",
-        "all": "a venda",
+    t_map_en = {
+        "sale": "for sale",
+        "buy": "for sale",
+        "venda": "for sale",
+        "rent": "for rent",
+        "lease": "for rent",
+        "aluguel": "for rent",
+        "all": "for sale",
+        "todos": "for sale",
     }
-
-    p_clean = prop.strip().lower() if prop else "imoveis"
-    t_clean = trans.strip().lower() if trans else "a venda"
-
-    p_term = p_map.get(p_clean, p_clean)
-    t_term = t_map.get(t_clean, "a venda")
-
-    return p_term, t_term
+    return p_map_en.get(p_clean, "homes"), t_map_en.get(t_clean, "for sale")
 
 
-def _generate_fallback_portal_urls(city_clean: str, country_clean: str, prop_term: str, trans_term: str) -> List[str]:
+def _generate_fallback_portal_urls(city_clean: str, country_clean: str, prop_term: str, trans_term: str, is_pt: bool = True) -> List[str]:
     """Generates direct listing search URLs for the top portals if search engine is temporarily throttled."""
     slug_city = re.sub(r"[^a-zA-Z0-9]+", "-", city_clean.lower()).strip("-")
+
+    if not is_pt:
+        slug_action = "rent" if "rent" in trans_term else "for-sale"
+        return [
+            f"https://www.realtor.com/realestateandhomes-search/{slug_city}",
+            f"https://www.zillow.com/{slug_city}/",
+            f"https://www.redfin.com/city/{slug_city}",
+            f"https://www.trulia.com/{country_clean.lower()}/{slug_city}/"
+        ]
+
     slug_prop = "apartamento" if "apart" in prop_term else ("casa" if "casa" in prop_term else "imovel")
     slug_action = "venda" if "venda" in trans_term else "aluguel"
 
@@ -176,15 +207,6 @@ def discover_real_estate_urls(
     """
     Executes natural, high-yield real estate search queries matching country, city,
     property type, and transaction type.
-
-    :param country: Target country name (e.g., "Brasil").
-    :param city: Target city or neighborhood name (e.g., "Jardim Botânico DF", "Campinas").
-    :param property_type: Optional filter (e.g., "casas", "apartamentos").
-    :param transaction_type: Optional transaction (e.g., "venda", "aluguel").
-    :param max_results_per_query: Maximum number of links fetched per query.
-    :return: Deduplicated list of unique real estate URLs.
-    :raises InvalidLocationError: If country or city is null/empty.
-    :raises NoResultsFoundError: If no URLs are found after executing searches.
     """
     if not country or not country.strip():
         raise InvalidLocationError("The 'country' parameter cannot be empty.")
@@ -192,19 +214,25 @@ def discover_real_estate_urls(
         raise InvalidLocationError("The 'city' parameter cannot be empty.")
 
     country_clean = country.strip()
-    # Clean punctuation like commas from city string for search engine query
     city_clean = re.sub(r"[,;]", " ", city).strip()
     city_clean = re.sub(r"\s+", " ", city_clean)
     
-    prop_term, trans_term = _format_property_terms(property_type, transaction_type)
+    is_pt = _is_portuguese_locale(country_clean)
+    prop_term, trans_term = _format_property_terms(property_type, transaction_type, is_pt=is_pt)
 
     logger.info(
         f"Starting real estate discovery for: {city_clean}, {country_clean} "
         f"[Type: {prop_term}, Action: {trans_term}]"
     )
 
-    query_primary = f"{prop_term} {trans_term} {city_clean}"
-    query_secondary = f"imoveis {trans_term} {city_clean}"
+    if is_pt:
+        query_primary = f"{prop_term} {trans_term} {city_clean}"
+        query_secondary = f"imoveis {trans_term} {city_clean}"
+        query_fallback = f"imobiliarias {city_clean}"
+    else:
+        query_primary = f"{prop_term} {trans_term} {city_clean} {country_clean}"
+        query_secondary = f"real estate {trans_term} in {city_clean} {country_clean}"
+        query_fallback = f"real estate agencies in {city_clean}"
 
     urls_primary = execute_ddg_search(query_primary, max_results=max_results_per_query)
     urls_secondary = execute_ddg_search(query_secondary, max_results=max_results_per_query)
@@ -218,7 +246,6 @@ def discover_real_estate_urls(
             unique_urls.append(url)
 
     if not unique_urls:
-        query_fallback = f"imobiliarias {city_clean}"
         logger.info(f"Attempting fallback query: '{query_fallback}'")
         urls_fallback = execute_ddg_search(query_fallback, max_results=max_results_per_query)
         for url in urls_fallback:
@@ -227,9 +254,8 @@ def discover_real_estate_urls(
                 unique_urls.append(url)
 
     if not unique_urls:
-        # Fallback portal seeds if search engine rate-limits
         logger.info("Search engine returned 0 results. Activating smart direct portal fallback...")
-        fallback_seeds = _generate_fallback_portal_urls(city_clean, country_clean, prop_term, trans_term)
+        fallback_seeds = _generate_fallback_portal_urls(city_clean, country_clean, prop_term, trans_term, is_pt=is_pt)
         for seed in fallback_seeds:
             if seed not in seen_urls:
                 seen_urls.add(seed)

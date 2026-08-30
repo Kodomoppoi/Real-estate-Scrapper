@@ -143,7 +143,7 @@ def _get_client(client: Optional[OpenAI] = None) -> OpenAI:
     api_key = (api_key or LLM_API_KEY or "").strip().strip("\"'")
     if not api_key:
         raise MissingAPIKeyError(
-            "Chave de API não configurada. Por favor, insira sua chave no menu lateral ou no arquivo .env."
+            "API key is not configured. Please enter your API key in the sidebar or set it in your .env file."
         )
 
     if base_url and str(base_url).strip():
@@ -420,10 +420,10 @@ def curate_top_real_estate_sites(
                 logger.info(f"Top {len(chosen)} distinct deep URLs selected by AI ({current_model}): {chosen}")
                 return chosen
     except AuthenticationError as exc:
-        raise LLMAuthError(f"Chave de API inválida ou não autorizada: {exc}")
+        raise LLMAuthError(f"Invalid or unauthorized API key: {exc}")
     except (RateLimitError, APIError) as exc:
         if "quota" in str(exc).lower() or "429" in str(exc) or "resource_exhausted" in str(exc).lower():
-            raise LLMQuotaExhaustedError(f"Limite de cota da API atingido no modelo {current_model}: {exc}")
+            raise LLMQuotaExhaustedError(f"API quota limit reached on model {current_model}: {exc}")
         logger.warning(f"LLM curation notice ({exc}). Using top search candidates.")
     except Exception as exc:
         logger.debug(f"Curation notice ({exc}). Using top search candidates.")
@@ -545,7 +545,7 @@ def extract_properties_from_text(
                 break
 
             except AuthenticationError as exc:
-                raise LLMAuthError(f"Chave de API inválida ou sem permissão: {exc}")
+                raise LLMAuthError(f"Invalid or unauthorized API key: {exc}")
 
             except (RateLimitError, APIError) as exc:
                 error_msg = str(exc).lower()
@@ -553,8 +553,8 @@ def extract_properties_from_text(
 
                 if is_daily_exhausted:
                     raise LLMQuotaExhaustedError(
-                        f"Cota diária da API atingida no modelo {current_model}. "
-                        f"Por favor, aguarde a renovação da cota ou use uma chave com saldo."
+                        f"Daily API quota limit reached on model {current_model}. "
+                        f"Please wait for quota renewal or use an API key with available credits."
                     )
 
                 if attempt == 1:
@@ -563,11 +563,11 @@ def extract_properties_from_text(
                     logger.warning(f"Rate limit cooldown for '{source_url}'. Waiting {backoff_seconds}s before 1 retry...")
                     time.sleep(backoff_seconds)
                 else:
-                    raise LLMQuotaExhaustedError(f"Erro de taxa de requisições (429) no modelo {current_model}: {exc}")
+                    raise LLMQuotaExhaustedError(f"Rate limit error (429) on model {current_model}: {exc}")
 
             except Exception as exc:
                 logger.error(f"Unexpected error during LLM extraction for {source_url}: {exc}")
-                raise LLMExtractionError(f"Falha na extração com o modelo {current_model}: {exc}")
+                raise LLMExtractionError(f"Extraction error with model {current_model}: {exc}")
 
     logger.info(f"Successfully extracted {len(all_extracted_listings)} total properties from {source_url} using {current_model}.")
     return all_extracted_listings
