@@ -4,6 +4,8 @@
 [![Python Version](https://img.shields.io/badge/Python-3.10%2B-green.svg)](https://www.python.org/)
 
 An intelligent, token-efficient pipeline designed to automatically discover real estate websites, crawl listing pages, and extract structured property data using LLM Structured Outputs.
+---
+VIDEO SHOWCASE : https://youtu.be/xcjRcRTZt-I?si=thM-5ZTkQCM7sZmI
 
 ---
 
@@ -11,7 +13,9 @@ An intelligent, token-efficient pipeline designed to automatically discover real
 ![Dashboard Overview](docs/screenshots/dashboard_overview.png)
 *Interactive Real Estate Explorer with KPI metrics, AI curated portals, and property listing tables.*
 
-<iframe width="560" height="315" src="https://youtu.be/xcjRcRTZt-I?si=thM-5ZTkQCM7sZmI" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+<p align="center" width="100%">
+<video src="https://youtu.be/xcjRcRTZt-I?si=thM-5ZTkQCM7sZmI" width="80%" controls></video>
+</p>
 
 ---
 
